@@ -1,6 +1,5 @@
 import numpy as np
 import requests
-from html.parser import HTMLParser
 import matplotlib.dates as mdates
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -11,13 +10,14 @@ import csv
 import io
 import warnings
 import json
+import math
 
 warnings.filterwarnings("ignore")
 
 data = {
         "date": "2022-12-17",
         "observatory":"OT",
-        "minimum_priority": 3,
+        "minimum_priority": 2,
         "maximum_priority": 1,
         "filler": "",
 }
@@ -133,102 +133,112 @@ def alt_at_time(df, longitude, latitude, mode):
 with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
+    j2000 = datetime.datetime(2000,1,1,12)
+
     latitude, longitude = 28.3, -16.5097
 
-    print('_________________________________________________\n')
-    print('Authenticating... (takes about 10-15 seconds)')
-    print('_________________________________________________')
-    """
-    p = s.post('http://research.iac.es/proyecto/muscat/users/login', data=payload)
-    obs_path = 'http://research.iac.es/proyecto/muscat/observations/export'
-    targets_path = 'http://research.iac.es/proyecto/muscat/stars/export'
-    path_list = [obs_path,targets_path]
-    r = [s.get(path) for path in tqdm.tqdm(path_list, desc=f'Downloading past observation and registered targets data... (about 15 seconds)')]
-    obs_text = r[0].text#.encode('utf-8')
-    targets_text = r[1].text
-    #column = ["id","telescope","observer","weather","seeing","temperature","start_time","end_time","flats","bias","exposure_time","lightcurve","quicklook","comments","files","star_id","code"]
-    obs_reader = csv.reader(io.StringIO(obs_text), delimiter=';',quotechar='"',
-                        quoting=csv.QUOTE_ALL, skipinitialspace=True)#,index_col=column)
-    targets_reader = csv.reader(io.StringIO(targets_text), delimiter=';',quotechar='"',
-                        quoting=csv.QUOTE_ALL, skipinitialspace=True)
-    observations_df = pd.DataFrame([row for row in obs_reader])
-    targets_df = pd.DataFrame([row for row in targets_reader])
-    targets_df = replace_header(targets_df)
+    try:
+        with open("twilights.json", 'r') as openfile:
+            twilights = json.load(openfile)
+    except FileNotFoundError:
+        twilights ={
+            "date": "",
+            "minimum_priority": "",
+            "night": "",
+            "morning": ""
+        }
+        with open('twilights.json', 'w') as f:
+            json.dump(twilights, f, ensure_ascii=False)   
+        
 
-    #print(registration.content)
-    print('_________________________________________________\n')
-    print(f'Generating airmass plots for {day.strftime("%B %d, %Y")}')
-    print('_________________________________________________')
-    
-    registration = s.post('http://research.iac.es/proyecto/muscat/stars/scheduler', data=data)
+    if twilights["date"] == data["date"] and twilights["minimum_priority"] == data['minimum_priority']:
+        targets_df = pd.read_csv("targets.csv")
+        df = pd.read_csv("obs_plan.csv")
 
-    targets_df.to_csv("targets.csv")
-    
-    mat = []  # 保存先の行列
-    soup = BeautifulSoup(registration.content, 'html.parser')
+        with open("twilights.json", 'r') as openfile:
+            twilights = json.load(openfile)
+    else:
+        print('_________________________________________________\n')
+        print('Authenticating... (takes about 10-15 seconds)')
+        print('_________________________________________________')
+        
+        p = s.post('http://research.iac.es/proyecto/muscat/users/login', data=payload)
+        obs_path = 'http://research.iac.es/proyecto/muscat/observations/export'
+        targets_path = 'http://research.iac.es/proyecto/muscat/stars/export'
+        path_list = [obs_path,targets_path]
+        r = [s.get(path) for path in tqdm.tqdm(path_list, desc=f'Downloading past observation and registered targets data... (about 15 seconds)')]
+        obs_text = r[0].text#.encode('utf-8')
+        targets_text = r[1].text
+        #column = ["id","telescope","observer","weather","seeing","temperature","start_time","end_time","flats","bias","exposure_time","lightcurve","quicklook","comments","files","star_id","code"]
+        obs_reader = csv.reader(io.StringIO(obs_text), delimiter=';',quotechar='"',
+                            quoting=csv.QUOTE_ALL, skipinitialspace=True)#,index_col=column)
+        targets_reader = csv.reader(io.StringIO(targets_text), delimiter=';',quotechar='"',
+                            quoting=csv.QUOTE_ALL, skipinitialspace=True)
+        observations_df = pd.DataFrame([row for row in obs_reader])
+        targets_df = pd.DataFrame([row for row in targets_reader])
+        targets_df = replace_header(targets_df)
 
-    # tableの取得
-    table = soup.find('table')
+        #print(registration.content)
+        print('_________________________________________________\n')
+        print(f'Generating airmass plots for {day.strftime("%B %d, %Y")}')
+        print('_________________________________________________')
+        
+        registration = s.post('http://research.iac.es/proyecto/muscat/stars/scheduler', data=data)
+        
+        mat = []  # 保存先の行列
+        soup = BeautifulSoup(registration.content, 'html.parser')
 
-    # theadの解析
-    r = []  # 保存先の行
-    thead = table.find('thead')  # theadタグを探す
-    ths = thead.tr.find_all('th')
-    for th in ths:  # thead -> trからthタグを探す
-        r.append(th.text)  # thタグのテキストを保存
+        # tableの取得
+        table = soup.find('table')
 
-    mat.append(r)  # 行をテーブルに保存
-    # tbodyの解析
-    tbody = table.find('tbody')  # tbodyタグを探す
-    trs = tbody.find_all('tr')  # tbodyからtrタグを探す
-    for tr in trs:
+        # theadの解析
         r = []  # 保存先の行
-        for td in tr.find_all('td'):  # trタグからtdタグを探す
-            r.append(td.text)  # tdタグのテキストを保存
-        mat.append(r)
-    # 出力
-    #for r in mat:
-        #print(','.join(r))  # カンマ（,）で列を結合して表示
-    df = pd.DataFrame(mat)
-    df = replace_header(df)
-    print(targets_df.iloc[0])
-    print(df)
+        thead = table.find('thead')  # theadタグを探す
+        ths = thead.tr.find_all('th')
+        for th in ths:  # thead -> trからthタグを探す
+            r.append(th.text)  # thタグのテキストを保存
 
-    night_info = soup.find('div', class_='night_info_box').text
-    night_twilight = night_info.find("Night twilight nautical: ")
-    morning_twilight = night_info.find("Morning twilight nautical: ")
+        mat.append(r)  # 行をテーブルに保存
+        # tbodyの解析
+        tbody = table.find('tbody')  # tbodyタグを探す
+        trs = tbody.find_all('tr')  # tbodyからtrタグを探す
+        for tr in trs:
+            r = []  # 保存先の行
+            for td in tr.find_all('td'):  # trタグからtdタグを探す
+                r.append(td.text)  # tdタグのテキストを保存
+            mat.append(r)
+        # 出力
+        #for r in mat:
+            #print(','.join(r))  # カンマ（,）で列を結合して表示
+        df = pd.DataFrame(mat)
+        df = replace_header(df)
 
-    night_twilight = night_info[night_twilight + len("Night twilight nautical: "): night_twilight + len("Night twilight nautical: ")+5]
-    morning_twilight = night_info[morning_twilight + len("Morning twilight nautical: "):morning_twilight + len("Morning twilight nautical: ")+5]
+        night_info = soup.find('div', class_='night_info_box').text
+        night_twilight = night_info.find("Night twilight nautical: ")
+        morning_twilight = night_info.find("Morning twilight nautical: ")
 
-    twilights ={
-        "day": data["date"]
-        "night": night_twilight,
-        "morning": morning_twilight
-    }
+        night_twilight = night_info[night_twilight + len("Night twilight nautical: "): night_twilight + len("Night twilight nautical: ")+5]
+        morning_twilight = night_info[morning_twilight + len("Morning twilight nautical: "):morning_twilight + len("Morning twilight nautical: ")+5]
 
-    with open('twilights.json', 'w') as f:
-        json.dump(twilights, f, ensure_ascii=False)
-    """
-    with open("twilights.json", 'r') as openfile:
-        twilights = json.load(openfile)
+        twilights ={
+            "date": data["date"],
+            "minimum_priority": data["minimum_priority"],
+            "night": night_twilight,
+            "morning": morning_twilight
+        }
 
-    #night_twilight = day + datetime.timedelta(hours=int(night_twilight[0:2]),minutes=int(night_twilight[3:5]))
-    #morning_twilight = day + datetime.timedelta(days=1,hours=int(morning_twilight[0:2]),minutes=int(morning_twilight[3:5]))
+        df['Acc period error'] = ["+ 00:00:00" if item == "" else item for item in df['Acc period error']]
+
+        targets_df.to_csv("targets.csv")
+        df.to_csv("obs_plan.csv")
+
+        with open('twilights.json', 'w') as f:
+            json.dump(twilights, f, ensure_ascii=False)
+ 
     night_twilight = day + datetime.timedelta(hours=int(twilights["night"][0:2]),minutes=int(twilights["night"][3:5]))
     morning_twilight = day + datetime.timedelta(days=1,hours=int(twilights["morning"][0:2]),minutes=int(twilights["morning"][3:5]))
 
-    print(night_twilight,morning_twilight)
-
-    #df.to_csv("obs_plan.csv")
-    targets_df = pd.read_csv("targets.csv")
-
-    df = pd.read_csv("obs_plan.csv")
-    
     df['Moon'] = [float(item[:-2]) for item in df['Moon']]
-
-    #print(df['Moon'])
-
     df = df[df['Moon'] > 30]
 
     #print(df)
@@ -246,7 +256,6 @@ with requests.Session() as s:
     df['RA in deg'] = [hms_to_deg(item) for item in df['RA']]
     df['Dec in deg'] = [dms_to_deg(item) for item in df['Dec']]
 
-    df['Acc period error'] = ["+ 00:00:00" if type(item) == float else item for item in df['Acc period error'] ]
     df['Ephem error TD'] = [datetime.timedelta(hours=int(item[2:4]),minutes=int(item[5:7])) for item in df['Acc period error']]
 
     df['Transit begin DT'] = [time_to_datetime(str(item)) for item in df["Transit begin"]]
@@ -256,11 +265,6 @@ with requests.Session() as s:
     
     df['Transit end DT'] = [time_to_datetime(str(item)) for item in df["Transit end"]]
     df['Obs end DT'] = [end + error + datetime.timedelta(minutes=30) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
-
-    df_start = alt_at_time(df,longitude,latitude,"start")
-    df_end = alt_at_time(df,longitude,latitude,"end")
-
-    j2000 = datetime.datetime(2000,1,1,12)
 
     df['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in df['Obs begin DT']]
 
@@ -272,6 +276,8 @@ with requests.Session() as s:
     df['Alt'] = [alt_az(latitude, dec, ha)['altitude'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
     df['Az'] = [alt_az(latitude, dec, ha)['azimuth'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
 
+    df_start = alt_at_time(df,longitude,latitude,"start")
+    df_end = alt_at_time(df,longitude,latitude,"end")
     df = df[df_start > 30]
     df = df[df_end> 30]
 
@@ -293,91 +299,109 @@ with requests.Session() as s:
     time = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
     jst  = [item + datetime.timedelta(hours=9) for item in time]
 
-    targets_filter = np.array([item in df['Name'].tolist() for item in targets_df['name']])
+    #targets_filter = np.array([item in df['Name'].tolist() for item in targets_df['name']])
 
-    targets_df = targets_df[targets_filter]
+    df_sorted = df.sort_values('Obs begin DT')
+    
+    plans = []
 
-    fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [1,2]},figsize=(15,8),)
+    for i in range(len(df_sorted)):
+        plan = []
+        df_sorted = df_sorted.iloc[i:,:]
+        df_next_gen = df_sorted
+        while len(df_next_gen) > 0:
+            #一つ目
+            plan.append(df_next_gen.iloc[0])
+            #時間が被っていない、一番はやく始まるやつ
+            df_next_gen = df_next_gen[df_next_gen['Obs begin DT'] > df_next_gen['Obs end DT'].iloc[0]]
+        plan = pd.DataFrame(plan)
+        plans.append(plan)
 
-    for index, object in df.iterrows():
-        meta = targets_df[targets_df["name"] == object["Name"]]
-        df_altitude_plot = pd.DataFrame()
+    plans = [plan for plan in plans if len(plan) != 0]
 
-        df_altitude_plot['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in time]
-        df_altitude_plot['UT'] = time
-        df_altitude_plot['JST'] = jst
+    for plan in plans:
 
-        df_altitude_plot['Local sidereal time'] = [local_sidereal_time(day,longitude,ut) for day, ut in zip(df_altitude_plot['day_since_j2000'], time)]
-        df_altitude_plot['Local sidereal time in hours'] = df_altitude_plot['Local sidereal time']/15
-        df_altitude_plot['Local sidereal time DT'] = [adjust_lst(lst,day) for lst in df_altitude_plot['Local sidereal time in hours']]
+        fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(10,8))
 
-        df_altitude_plot['Hour angle'] = [hour_angle(lst,object['RA in deg']) for lst in df_altitude_plot['Local sidereal time']]
+        for index, object in plan.iterrows():
+            meta = targets_df[targets_df["name"] == object["Name"]]
+            df_altitude_plot = pd.DataFrame()
 
-        df_altitude_plot['Alt'] = [alt_az(latitude, object['Dec in deg'], ha)['altitude'] for ha in df_altitude_plot['Hour angle']]
-        df_altitude_plot['Az'] = [alt_az(latitude, object['Dec in deg'], ha)['azimuth'] for ha in df_altitude_plot['Hour angle']]
+            df_altitude_plot['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in time]
+            df_altitude_plot['UT'] = time
+            df_altitude_plot['JST'] = jst
 
-        transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-        obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
-        transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+            df_altitude_plot['Local sidereal time'] = [local_sidereal_time(day,longitude,ut) for day, ut in zip(df_altitude_plot['day_since_j2000'], time)]
+            df_altitude_plot['Local sidereal time in hours'] = df_altitude_plot['Local sidereal time']/15
+            df_altitude_plot['Local sidereal time DT'] = [adjust_lst(lst,day) for lst in df_altitude_plot['Local sidereal time in hours']]
 
-        color = np.random.rand(2,)
-        color = np.append(color,0.3)
-        transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
-        altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
-        intransit = df_altitude_plot[transit_filter]
-        ootransit = df_altitude_plot[~transit_filter][altitude_filter]
+            df_altitude_plot['Hour angle'] = [hour_angle(lst,object['RA in deg']) for lst in df_altitude_plot['Local sidereal time']]
 
-        jst_plt = object['Transit begin DT'] + datetime.timedelta(hours=9)
+            df_altitude_plot['Alt'] = [alt_az(latitude, object['Dec in deg'], ha)['altitude'] for ha in df_altitude_plot['Hour angle']]
+            df_altitude_plot['Az'] = [alt_az(latitude, object['Dec in deg'], ha)['azimuth'] for ha in df_altitude_plot['Hour angle']]
 
-        ax[0].plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
-        ax[0].scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
+            transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+            obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
+            transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
 
-        ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
-        ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
-        ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
-        ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], object['Name'], va='center' ,ha='center', fontsize=10, color='white',weight='bold')
+            color = np.random.rand(2,)
+            color = np.append(color,0.3)
+            transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
+            altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
+            intransit = df_altitude_plot[transit_filter]
+            ootransit = df_altitude_plot[~transit_filter][altitude_filter]
 
+            jst_plt = object['Transit begin DT'] + datetime.timedelta(hours=9)
+
+            ax[0].plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
+            ax[0].scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
+
+            ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
+            ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
+            ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
+            ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], object['Name'], va='center' ,ha='center', fontsize=10, color='white',weight='bold')
+
+            print('_________________________________________________')
+            print(f'{object["Name"]} (Priority {object["Priority"]})')
+            print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
+            print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"]})')
+            print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
+            print(f'Vmag: {float(meta["V_mag"])}')
+            if type(meta["comments"].iloc[0]) != float:
+                print(f'Comments: {meta["comments"].iloc[0]}')
+            if type(meta["comments_sg1"].iloc[0]) != float:
+                print(f'SG1 comments: {meta["comments_sg1"].iloc[0]}')
+
+                #time.sleep(2)
         print('_________________________________________________')
-        print(f'{object["Name"]} (Priority {object["Priority"]})')
-        print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
-        print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"]})')
-        print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
-        print(f'Vmag: {float(meta["V_mag"])}')
-        if type(meta["comments"].iloc[0]) != float:
-            print(f'Comments: {meta["comments"].iloc[0]}')
-        if type(meta["comments_sg1"].iloc[0]) != float:
-            print(f'SG1 comments: {meta["comments_sg1"].iloc[0]}')
+            #plt.plot(time, df_altitude_plot['Alt'], color='red')    
+        #plt.xlim(0,90)
 
-            #time.sleep(2)
-            
-    print('_________________________________________________')
-        #plt.plot(time, df_altitude_plot['Alt'], color='red')    
-    #plt.xlim(0,90)
+        ax[0].axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)))
+        ax[0].axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)))
+        ax[1].axvline(mdates.date2num(morning_twilight))
+        ax[1].axvline(mdates.date2num(night_twilight))
 
-    ax[0].axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)))
-    ax[0].axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)))
-    ax[1].axvline(mdates.date2num(morning_twilight))
-    ax[1].axvline(mdates.date2num(night_twilight))
+        ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax[0].xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax[0].xaxis.tick_top()
+        ax[0].set_xlim(mdates.date2num(jst[0]),mdates.date2num(jst[-1]))
+        ax[0].set_ylim(0,90)
+        ax[0].tick_params(labelbottom=False,labeltop=True)
+        ax[0].set_xlabel("Time (JST)")
+        ax[0].xaxis.set_label_position('top')
 
-    ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    ax[0].xaxis.set_major_locator(mdates.HourLocator(interval=1))
-    ax[0].xaxis.tick_top()
-    ax[0].set_xlim(mdates.date2num(jst[0]),mdates.date2num(jst[-1]))
-    ax[0].tick_params(labelbottom=False,labeltop=True)
-    ax[0].set_xlabel("Time (JST)")
-    ax[0].xaxis.set_label_position('top')
+        ax[0].set_ylabel("Elevation")
 
-    ax[0].set_ylabel("Elevation")
+        ax[1].xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax[1].set_xlim(mdates.date2num(time[0]),mdates.date2num(time[-1]))
+        #ax[1].set_xlabel("Time (UT)")
 
-    ax[1].xaxis.set_major_locator(mdates.HourLocator(interval=1))
-    ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    ax[1].set_xlim(mdates.date2num(time[0]),mdates.date2num(time[-1]))
-    #ax[1].set_xlabel("Time (UT)")
+        ax[1].set_xlabel("Time (UT)")
+        ax[1].set_yticks([])
 
-    ax[1].set_xlabel("Time (UT)")
-    ax[1].set_yticks([])
-
-    fig.tight_layout()
+        fig.tight_layout()
 
     plt.show()
         # note: altitude = 0 になる時間を解ける？
