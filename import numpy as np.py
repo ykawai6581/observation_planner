@@ -364,7 +364,7 @@ with requests.Session() as s:
             print('_________________________________________________')
             print(f'{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
-            print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"]})')
+            print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
             print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
             print(f'Vmag: {float(meta["V_mag"])}')
             if type(meta["comments"].iloc[0]) != float:
