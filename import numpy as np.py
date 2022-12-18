@@ -246,16 +246,16 @@ with requests.Session() as s:
     df['RA in deg'] = [hms_to_deg(item) for item in df['RA']]
     df['Dec in deg'] = [dms_to_deg(item) for item in df['Dec']]
 
-    df['RA_revert'] = [deg_to_hms(item) for item in df['RA in deg']]
-    df['Dec_revert'] = [deg_to_dms(item) for item in df['Dec in deg']]
+    df['Acc period error'] = ["+ 00:00:00" if type(item) == float else item for item in df['Acc period error'] ]
+    df['Ephem error TD'] = [datetime.timedelta(hours=int(item[2:4]),minutes=int(item[5:7])) for item in df['Acc period error']]
 
     df['Transit begin DT'] = [time_to_datetime(str(item)) for item in df["Transit begin"]]
-    df['Obs begin DT'] = [item - datetime.timedelta(minutes=45) for item in df['Transit begin DT']]
+    df['Obs begin DT'] = [begin - error - datetime.timedelta(minutes=45) for begin, error in zip(df['Transit begin DT'], df['Ephem error TD'])]
 
     df['Transit middle DT'] = [time_to_datetime(str(item)) for item in df["Transit middle"]]
     
     df['Transit end DT'] = [time_to_datetime(str(item)) for item in df["Transit end"]]
-    df['Obs end DT'] = [item + datetime.timedelta(minutes=30) for item in df['Transit end DT']]
+    df['Obs end DT'] = [end + error + datetime.timedelta(minutes=30) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
 
     df_start = alt_at_time(df,longitude,latitude,"start")
     df_end = alt_at_time(df,longitude,latitude,"end")
@@ -275,8 +275,8 @@ with requests.Session() as s:
     df = df[df_start > 30]
     df = df[df_end> 30]
 
-    df = df[df['Obs begin DT'] > night_twilight]
-    df = df[df['Obs end DT'] < morning_twilight]
+    #df = df[df['Obs begin DT'] > night_twilight]
+    #df = df[df['Obs end DT'] < morning_twilight]
 
     ##ここに最適化アルゴリズムを噛ませて、それ以外の天体をフィルタリングする df[df['Name'] in {アルゴリズムの出力}]]
 
@@ -318,6 +318,7 @@ with requests.Session() as s:
 
         transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
         obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
+        transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
 
         color = np.random.rand(2,)
         color = np.append(color,0.3)
@@ -332,6 +333,7 @@ with requests.Session() as s:
         ax[0].scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
 
         ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
+        ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
         ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
         ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], object['Name'], va='center' ,ha='center', fontsize=10, color='white',weight='bold')
 
@@ -341,9 +343,9 @@ with requests.Session() as s:
         print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"]})')
         print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
         print(f'Vmag: {float(meta["V_mag"])}')
-        if meta["comments"].iloc[0] != "nan":
+        if type(meta["comments"].iloc[0]) != float:
             print(f'Comments: {meta["comments"].iloc[0]}')
-        if meta["comments_sg1"].iloc[0] != "nan":
+        if type(meta["comments_sg1"].iloc[0]) != float:
             print(f'SG1 comments: {meta["comments_sg1"].iloc[0]}')
 
             #time.sleep(2)
