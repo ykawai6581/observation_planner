@@ -1,4 +1,6 @@
 import numpy as np
+import argparse
+
 import requests
 import matplotlib.dates as mdates
 from bs4 import BeautifulSoup
@@ -14,10 +16,24 @@ import math
 
 warnings.filterwarnings("ignore")
 
+parser = argparse.ArgumentParser(description=\
+'## obslog formatter ver. 2022 Nov. 19 ##')
+
+parser.add_argument('--obsdate', type=int, help='observation date in yymmdd format')
+parser.add_argument('--minp', type=int, help="minimum priority of objects")
+
+args = parser.parse_args()
+
+def obsdate_to_date(date):
+    year = str(date)[0:2]
+    month = str(date)[2:4]
+    day = str(date)[4:6]
+    return f'20{year}-{month}-{day}'
+
 data = {
-        "date": "2022-12-17",
+        "date": obsdate_to_date(args.obsdate),
         "observatory":"OT",
-        "minimum_priority": 2,
+        "minimum_priority": args.minp,
         "maximum_priority": 1,
         "filler": "",
 }
@@ -307,8 +323,8 @@ with requests.Session() as s:
 
     for i in range(len(df_sorted)):
         plan = []
-        df_sorted = df_sorted.iloc[i:,:]
-        df_next_gen = df_sorted
+        df_next_gen = df_sorted.iloc[i:,:]
+        print(df_next_gen)
         while len(df_next_gen) > 0:
             #一つ目
             plan.append(df_next_gen.iloc[0])
@@ -317,11 +333,14 @@ with requests.Session() as s:
         plan = pd.DataFrame(plan)
         plans.append(plan)
 
-    plans = [plan for plan in plans if len(plan) != 0]
+    print([len(plan) for plan in plans])
+    plans = [plan for plan in plans if (len(plan) != 0)]
+    plans = [plan for plan in plans if (len(plan) != 1)]
 
-    for plan in plans:
+    for i, plan in enumerate(reversed(plans)):
 
         fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(10,8))
+        print(f'______Plan {len(plans) - i}_____________________________________')
 
         for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
@@ -359,10 +378,9 @@ with requests.Session() as s:
             ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
             ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
             ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
-            ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], object['Name'], va='center' ,ha='center', fontsize=10, color='white',weight='bold')
+            ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color='white',weight='bold')
 
-            print('_________________________________________________')
-            print(f'{object["Name"]} (Priority {object["Priority"]})')
+            print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
             print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
             print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
@@ -400,7 +418,7 @@ with requests.Session() as s:
 
         ax[1].set_xlabel("Time (UT)")
         ax[1].set_yticks([])
-
+        ax[0].set_title(f'Observation Plan {len(plans)-i} on {twilights["date"]}')
         fig.tight_layout()
 
     plt.show()
