@@ -21,6 +21,8 @@ parser = argparse.ArgumentParser(description=\
 
 parser.add_argument('--obsdate', type=int, help='observation date in yymmdd format')
 parser.add_argument('--minp', type=int, help="minimum priority of objects")
+parser.add_argument('--all', help='if provided, plots all visible objects', action='store_true')
+
 
 args = parser.parse_args()
 
@@ -317,25 +319,29 @@ with requests.Session() as s:
 
     #targets_filter = np.array([item in df['Name'].tolist() for item in targets_df['name']])
 
-    df_sorted = df.sort_values('Obs begin DT')
-    
-    plans = []
+    if not args.all:
+        df_sorted = df.sort_values('Obs begin DT')
 
-    for i in range(len(df_sorted)):
-        plan = []
-        df_next_gen = df_sorted.iloc[i:,:]
-        print(df_next_gen)
-        while len(df_next_gen) > 0:
-            #一つ目
-            plan.append(df_next_gen.iloc[0])
-            #時間が被っていない、一番はやく始まるやつ
-            df_next_gen = df_next_gen[df_next_gen['Obs begin DT'] > df_next_gen['Obs end DT'].iloc[0]]
-        plan = pd.DataFrame(plan)
-        plans.append(plan)
+        plans = []
 
-    print([len(plan) for plan in plans])
-    plans = [plan for plan in plans if (len(plan) != 0)]
-    plans = [plan for plan in plans if (len(plan) != 1)]
+        for i in range(len(df_sorted)):
+            plan = []
+            df_next_gen = df_sorted.iloc[i:,:]
+            print(df_next_gen)
+            while len(df_next_gen) > 0:
+                #一つ目
+                plan.append(df_next_gen.iloc[0])
+                #時間が被っていない、一番はやく始まるやつ
+                df_next_gen = df_next_gen[df_next_gen['Obs begin DT'] > df_next_gen['Obs end DT'].iloc[0]]
+            plan = pd.DataFrame(plan)
+            plans.append(plan)
+
+        print([len(plan) for plan in plans])
+        plans = [plan for plan in plans if (len(plan) != 0)]
+        plans = [plan for plan in plans if (len(plan) != 1)]
+    else:
+        #plans = [df.sort_values('Obs begin DT',ascending=False)]
+        plans = [df]
 
     for i, plan in enumerate(reversed(plans)):
 
@@ -363,8 +369,12 @@ with requests.Session() as s:
             obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
             transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
 
-            color = np.random.rand(2,)
-            color = np.append(color,0.3)
+            #color = np.array([0.8,0.8,0.8])
+            color = np.random.uniform(low=0.42, high=0.95, size=(3,))
+            text_color = color - 0.3
+            text_color = [item if item > 0 else 0 for item in text_color]
+            #print(color)
+            #color = np.append(color,0.8)
             transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
             altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
             intransit = df_altitude_plot[transit_filter]
@@ -378,13 +388,16 @@ with requests.Session() as s:
             ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
             ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
             ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
-            ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color='white',weight='bold')
+            ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
 
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
             print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
             print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
-            print(f'Vmag: {float(meta["V_mag"])}')
+            if meta["V_mag"].iloc[0] != '':
+                print(f'Vmag: {float(meta["V_mag"])}')
+            else:
+                print(f'Vmag: N/A')
             if type(meta["comments"].iloc[0]) != float:
                 print(f'Comments: {meta["comments"].iloc[0]}')
             if type(meta["comments_sg1"].iloc[0]) != float:
