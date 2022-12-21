@@ -358,6 +358,7 @@ with requests.Session() as s:
                 plan.append(df_next_gen.iloc[0])
                 #時間が被っていない、一番はやく始まるやつ
                 df_next_gen = df_next_gen[df_next_gen['Obs begin DT'] > df_next_gen['Obs end DT'].iloc[0]]
+                df_next_gen = df_next_gen.sort_values('Obs end DT')
             plan = pd.DataFrame(plan)
             plans.append(plan)
 
@@ -421,11 +422,9 @@ with requests.Session() as s:
             observation_plot, = ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
             ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
 
-
             altitude_plot_list.append(altitude_plot)
             observation_plot_list.append(observation_plot)
             object_info_list.append(object_info)
-
             
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
