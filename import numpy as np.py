@@ -1,6 +1,6 @@
 import numpy as np
 import argparse
-
+import mplcursors
 import requests
 import matplotlib.dates as mdates
 from bs4 import BeautifulSoup
@@ -13,6 +13,7 @@ import io
 import warnings
 import json
 import math
+from matplotlib.patheffects import withSimplePatchShadow
 
 warnings.filterwarnings("ignore")
 
@@ -147,6 +148,30 @@ def alt_at_time(df, longitude, latitude, mode):
     df['Alt'] = [alt_az(latitude, dec, ha)['altitude'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
     df['Az'] = [alt_az(latitude, dec, ha)['azimuth'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
     return df['Alt']
+
+def show_hover_panel(get_text_func=None):
+    cursor = mplcursors.cursor(
+        hover=2,  # Transient
+        annotation_kwargs=dict(
+            bbox=dict(
+                boxstyle="square,pad=0.5",
+                facecolor="white",
+                edgecolor="#ddd",
+                linewidth=0.5,
+                path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
+            ),
+            linespacing=1.5,
+            arrowprops=None,
+        ),
+    )
+
+    if get_text_func:
+        cursor.connect(
+            event="add",
+            func=lambda sel: sel.extras.append(cursor.add_highlight(pairs[sel.artist])),
+        )
+
+    return cursor
 
 with requests.Session() as s:
 
@@ -348,9 +373,14 @@ with requests.Session() as s:
         fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(10,8))
         print(f'______Plan {len(plans) - i}_____________________________________')
 
+        object_info_list = []
+        altitude_plot_list = []
+        observation_plot_list = []
+
         for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             df_altitude_plot = pd.DataFrame()
+            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0] if type(meta["comments"].iloc[0]) != float else "None"}'
 
             df_altitude_plot['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in time]
             df_altitude_plot['UT'] = time
@@ -382,14 +412,21 @@ with requests.Session() as s:
 
             jst_plt = object['Transit begin DT'] + datetime.timedelta(hours=9)
 
+            altitude_plot, = ax[0].plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax[0].plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
             ax[0].scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
 
-            ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1,)#, left=df_altitude_plot['JST'])
+            ax[1].barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
             ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
-            ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1,label=object['Name'])#, left=df_altitude_plot['JST'])
+            observation_plot, = ax[1].barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
             ax[1].text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
 
+
+            altitude_plot_list.append(altitude_plot)
+            observation_plot_list.append(observation_plot)
+            object_info_list.append(object_info)
+
+            
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
             print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
@@ -402,7 +439,7 @@ with requests.Session() as s:
                 print(f'Comments: {meta["comments"].iloc[0]}')
             if type(meta["comments_sg1"].iloc[0]) != float:
                 print(f'SG1 comments: {meta["comments_sg1"].iloc[0]}')
-
+            
                 #time.sleep(2)
         print('_________________________________________________')
             #plt.plot(time, df_altitude_plot['Alt'], color='red')    
@@ -412,6 +449,34 @@ with requests.Session() as s:
         ax[0].axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)))
         ax[1].axvline(mdates.date2num(morning_twilight))
         ax[1].axvline(mdates.date2num(night_twilight))
+
+        cursor = mplcursors.cursor(
+                observation_plot_list,
+                hover=True,  # Transient
+                annotation_kwargs=dict(
+                    bbox=dict(
+                        boxstyle="square,pad=0.5",
+                        facecolor="white",
+                        edgecolor="#ddd",
+                        linewidth=0.5,
+                        path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
+                    ),
+                    linespacing=1.5,
+                    arrowprops=None,
+                ),
+                highlight=True,
+                highlight_kwargs=dict(alpha=0.5,linewitdth=2)
+            )
+            
+        pairs = dict(zip(observation_plot_list, altitude_plot_list))
+        pairs.update(zip(observation_plot_list,altitude_plot_list))
+        pairs_2 = dict(zip(observation_plot_list, object_info_list))
+        pairs_2.update(zip(observation_plot_list,object_info_list))
+
+        @cursor.connect("add")
+        def on_add(sel):
+            sel.annotation.set_text(pairs_2[sel.artist])
+            sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
 
         ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax[0].xaxis.set_major_locator(mdates.HourLocator(interval=1))
@@ -434,5 +499,5 @@ with requests.Session() as s:
         ax[0].set_title(f'Observation Plan {len(plans)-i} on {twilights["date"]}')
         fig.tight_layout()
 
-    plt.show()
+        plt.show()
         # note: altitude = 0 になる時間を解ける？
