@@ -15,6 +15,8 @@ import json
 from matplotlib.patheffects import withSimplePatchShadow
 import os
 import getpass
+import time
+import sys
 
 warnings.filterwarnings("ignore")
 
@@ -24,7 +26,6 @@ parser = argparse.ArgumentParser(description=\
 parser.add_argument('--obsdate', type=int, help='observation date in yymmdd format')
 parser.add_argument('--minp', type=int, help="minimum priority of objects")
 parser.add_argument('--all', help='if provided, plots all visible objects', action='store_true')
-
 
 args = parser.parse_args()
 
@@ -41,21 +42,6 @@ data = {
         "maximum_priority": 1,
         "filler": "",
 }
-
-dirname = os.path.dirname(__file__)
-credentials = os.path.join(dirname, 'cred.json')
-
-try: 
-    with open(credentials, 'r') as openfile:
-        payload = json.load(openfile)
-except FileNotFoundError:
-    print('\n_____MuSCAT2_wiki_login__________________________\n')
-    print("***you can also provide a cred.json file to bypass login***\n")
-    username = input('username: ')
-    password = getpass.getpass(prompt='password: ')
-    print('_________________________________________________\n')
-    payload = {"username": username, "password": password}
-
 
 def dms_to_deg(deg):
     d = int(deg[0:3])
@@ -179,7 +165,6 @@ with requests.Session() as s:
         }
         with open('twilights.json', 'w') as f:
             json.dump(twilights, f, ensure_ascii=False)   
-        
 
     if twilights["date"] == data["date"] and twilights["minimum_priority"] >= data['minimum_priority']:
         targets_df = pd.read_csv("targets.csv")
@@ -189,11 +174,31 @@ with requests.Session() as s:
         with open("twilights.json", 'r') as openfile:
             twilights = json.load(openfile)
     else:
+        dirname = os.path.dirname(__file__)
+        credentials = os.path.join(dirname, 'cred.json')
+
+        try: 
+            with open(credentials, 'r') as openfile:
+                payload = json.load(openfile)
+        except FileNotFoundError:
+            print('\n_____MuSCAT2_wiki_login__________________________\n')
+            print("***you can also provide a cred.json file to bypass login***\n")
+            username = input('username: ')
+            password = getpass.getpass(prompt='password: ')
+            print('_________________________________________________\n')
+            payload = {"username": username, "password": password}
+
         print('_________________________________________________\n')
         print('Authenticating... (takes about 10-15 seconds)')
         print('_________________________________________________')
         
+        time_start = time.time()
         p = s.post('http://research.iac.es/proyecto/muscat/users/login', data=payload)
+        time_end = time.time()
+        elapsed = time_end - time_start
+        if elapsed < 2:
+            print("\nlogin failed: wrong username/password\n")
+            sys.exit(1)
         obs_path = 'http://research.iac.es/proyecto/muscat/observations/export'
         targets_path = 'http://research.iac.es/proyecto/muscat/stars/export'
         path_list = [obs_path,targets_path]
