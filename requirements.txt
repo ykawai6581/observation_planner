@@ -1,0 +1,7 @@
+BeautifulSoup4
+matplotlib
+mplcursors
+numpy
+pandas
+requests
+tqdm
