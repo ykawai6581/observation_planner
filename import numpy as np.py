@@ -12,8 +12,9 @@ import csv
 import io
 import warnings
 import json
-import math
 from matplotlib.patheffects import withSimplePatchShadow
+import os
+import getpass
 
 warnings.filterwarnings("ignore")
 
@@ -41,10 +42,20 @@ data = {
         "filler": "",
 }
 
-payload = {
-    "username": "observer",
-    "password": "observer-2018"
-}
+dirname = os.path.dirname(__file__)
+credentials = os.path.join(dirname, 'cred.json')
+
+try: 
+    with open(credentials, 'r') as openfile:
+        payload = json.load(openfile)
+except FileNotFoundError:
+    print('\n_____MuSCAT2_wiki_login__________________________\n')
+    print("***you can also provide a cred.json file to bypass login***\n")
+    username = input('username: ')
+    password = getpass.getpass(prompt='password: ')
+    print('_________________________________________________\n')
+    payload = {"username": username, "password": password}
+
 
 def dms_to_deg(deg):
     d = int(deg[0:3])
@@ -149,30 +160,6 @@ def alt_at_time(df, longitude, latitude, mode):
     df['Az'] = [alt_az(latitude, dec, ha)['azimuth'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
     return df['Alt']
 
-def show_hover_panel(get_text_func=None):
-    cursor = mplcursors.cursor(
-        hover=2,  # Transient
-        annotation_kwargs=dict(
-            bbox=dict(
-                boxstyle="square,pad=0.5",
-                facecolor="white",
-                edgecolor="#ddd",
-                linewidth=0.5,
-                path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
-            ),
-            linespacing=1.5,
-            arrowprops=None,
-        ),
-    )
-
-    if get_text_func:
-        cursor.connect(
-            event="add",
-            func=lambda sel: sel.extras.append(cursor.add_highlight(pairs[sel.artist])),
-        )
-
-    return cursor
-
 with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
@@ -194,9 +181,10 @@ with requests.Session() as s:
             json.dump(twilights, f, ensure_ascii=False)   
         
 
-    if twilights["date"] == data["date"] and twilights["minimum_priority"] == data['minimum_priority']:
+    if twilights["date"] == data["date"] and twilights["minimum_priority"] >= data['minimum_priority']:
         targets_df = pd.read_csv("targets.csv")
         df = pd.read_csv("obs_plan.csv")
+        df = df[df["Priority"] <= data['minimum_priority']]
 
         with open("twilights.json", 'r') as openfile:
             twilights = json.load(openfile)
@@ -352,7 +340,7 @@ with requests.Session() as s:
         for i in range(len(df_sorted)):
             plan = []
             df_next_gen = df_sorted.iloc[i:,:]
-            print(df_next_gen)
+            #print(df_next_gen)
             while len(df_next_gen) > 0:
                 #一つ目
                 plan.append(df_next_gen.iloc[0])
@@ -362,17 +350,19 @@ with requests.Session() as s:
             plan = pd.DataFrame(plan)
             plans.append(plan)
 
-        print([len(plan) for plan in plans])
+        #print([len(plan) for plan in plans])
         plans = [plan for plan in plans if (len(plan) != 0)]
         plans = [plan for plan in plans if (len(plan) != 1)]
+        if len(plans) > 9:
+            plans = plans[:9]
     else:
         #plans = [df.sort_values('Obs begin DT',ascending=False)]
         plans = [df]
 
-    for i, plan in enumerate(reversed(plans)):
+    for i, plan in enumerate(plans):
 
-        fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(10,8))
-        print(f'______Plan {len(plans) - i}_____________________________________')
+        fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(15,8))
+        print(f'______Plan {i+1}/{len(plans)}___________________________________')
 
         object_info_list = []
         altitude_plot_list = []
@@ -458,7 +448,7 @@ with requests.Session() as s:
                         facecolor="white",
                         edgecolor="#ddd",
                         linewidth=0.5,
-                        path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
+                        #path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
                     ),
                     linespacing=1.5,
                     arrowprops=None,
@@ -475,6 +465,7 @@ with requests.Session() as s:
         @cursor.connect("add")
         def on_add(sel):
             sel.annotation.set_text(pairs_2[sel.artist])
+            #sel.annotation.set(position=(0, 0))
             sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
 
         ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
@@ -495,8 +486,8 @@ with requests.Session() as s:
 
         ax[1].set_xlabel("Time (UT)")
         ax[1].set_yticks([])
-        ax[0].set_title(f'Observation Plan {len(plans)-i} on {twilights["date"]}')
+        ax[0].set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
         fig.tight_layout()
-
+        plt.subplots_adjust(right=0.7)
         plt.show()
         # note: altitude = 0 になる時間を解ける？
