@@ -1,22 +1,29 @@
-import numpy as np
 import argparse
-import mplcursors
-import requests
-import matplotlib.dates as mdates
-from bs4 import BeautifulSoup
-import pandas as pd
 import datetime
-import matplotlib.pyplot as plt
-import tqdm
 import csv
 import io
 import warnings
 import json
-from matplotlib.patheffects import withSimplePatchShadow
 import os
 import getpass
 import time
 import sys
+
+try:
+    from bs4 import BeautifulSoup
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    import mplcursors
+    import numpy as np
+    import pandas as pd
+    import requests
+    import tqdm
+except ModuleNotFoundError:
+    print('_________________________________________________\n')
+    print("Some required modules are not installed.\n\n    pip install -r requirements.txt\n\nPlease run the above command and try again.")
+    print('_________________________________________________\n')
+    sys.exit(1)
+
 
 warnings.filterwarnings("ignore")
 
