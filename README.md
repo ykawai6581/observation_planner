@@ -6,7 +6,9 @@ observation planner for MuSCAT2
     python observation_planner.py --obsdate=yymmdd --minp=int --all
 
 this python script allows you to browse through upcoming transit events with MuSCAT2 to plan observations. <br/>
-it can also suggest observation plans so we can save some time!
+it can also suggest observation plans so we can save some time!<br/>
+
+specify the observation date with --obsdate and minimum priority with --minp
 
 ### 1. retrieve airmass and gantt plots (eg. Jan 20 2023)
 
