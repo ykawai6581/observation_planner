@@ -8,8 +8,10 @@ import os
 import getpass
 import time
 import sys
-
+import math
 try:
+    from astropy.coordinates import get_moon, EarthLocation
+    from astropy import units as u
     from bs4 import BeautifulSoup
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -153,6 +155,20 @@ def alt_at_time(df, longitude, latitude, mode):
     df['Az'] = [alt_az(latitude, dec, ha)['azimuth'] for dec, ha in zip(df['Dec in deg'],df['Hour angle'])]
     return df['Alt']
 
+def moon_position(longitude,latitude,lst):
+    print(lst)
+    # Get the Moon's position in the ICRS (International Celestial Reference System) frame
+    julian_date = (lst - longitude + (2451545.0 * 360.98564736629) - 280.46061837)/360.98564736629 
+    ecliptic_longitude = 218.316 + 13.176396 * julian_date
+    ecliptic_latitude = 5.13 * np.sin(ecliptic_longitude*2*np.pi/360)
+    right_ascension = math.degrees(math.atan2(np.cos(ecliptic_longitude*2*np.pi/360) * np.sin(ecliptic_latitude*2*np.pi/360), np.cos(ecliptic_latitude*2*np.pi/360)))
+    declination = math.degrees(math.asin(math.sin(ecliptic_longitude*2*np.pi/360) * math.sin(ecliptic_latitude*2*np.pi/360)))
+    return alt_az(latitude,declination,lst-right_ascension)
+
+def moon_separation(alt,az,moon_alt, moon_az):
+    separation = np.sin(moon_alt*2*np.pi/360)*np.sin(alt*2*np.pi/360) + np.cos(moon_alt*2*np.pi/360)*np.cos(alt*2*np.pi/360)*np.cos(np.abs((az*2*np.pi/360) - moon_az*2*np.pi/360))
+    return np.arccos(separation)*360/(2*np.pi)
+    
 with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
@@ -339,8 +355,6 @@ with requests.Session() as s:
     #上のコードは全ての天体のトランジット開始時刻でのaltitudeの計算
     #ここからは全ての天体について任意の時刻でできるように書き直し
     
-    time = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
-    jst  = [item + datetime.timedelta(hours=9) for item in time]
 
     #targets_filter = np.array([item in df['Name'].tolist() for item in targets_df['name']])
 
@@ -356,8 +370,9 @@ with requests.Session() as s:
             while len(df_next_gen) > 0:
                 #一つ目
                 plan.append(df_next_gen.iloc[0])
-                #時間が被っていない、一番はやく始まるやつ
+                #時間が被っていない
                 df_next_gen = df_next_gen[df_next_gen['Obs begin DT'] > df_next_gen['Obs end DT'].iloc[0]]
+                #一番はやく終わるやつ
                 df_next_gen = df_next_gen.sort_values('Obs end DT')
             plan = pd.DataFrame(plan)
             plans.append(plan)
@@ -371,33 +386,51 @@ with requests.Session() as s:
         #plans = [df.sort_values('Obs begin DT',ascending=False)]
         plans = [df]
 
+
+    #ut = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
+    #jst  = [item + datetime.timedelta(hours=9) for item in ut]
+
+    constants = pd.DataFrame()
+    constants['UT'] = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
+    constants['JST'] = [item + datetime.timedelta(hours=9) for item in constants['UT']]
+    constants['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in constants['UT']]
+
+    constants['Local sidereal time'] = [local_sidereal_time(day,longitude,ut) for day, ut in zip(constants['day_since_j2000'], constants['UT'])]
+    constants['Local sidereal time in hours'] = constants['Local sidereal time']/15
+    constants['Local sidereal time DT'] = [adjust_lst(lst,day) for lst in constants['Local sidereal time in hours']]
+    constants['Moon altitude'] = [moon_position(longitude,latitude,lst)['altitude'] for lst in constants['Local sidereal time']]
+    constants['Moon azimuth'] = [moon_position(longitude,latitude,lst)['azimuth'] for lst in constants['Local sidereal time']]
+
     for i, plan in enumerate(plans):
 
         fig, ax = plt.subplots(2,1,gridspec_kw={'height_ratios': [2,2]},figsize=(15,8))
         print(f'______Plan {i+1}/{len(plans)}___________________________________')
 
+        #print(constants['Moon position'])
+        ax[0].scatter(mdates.date2num(constants['JST']), constants['Moon altitude'], marker='D',color='black',s=2)
+
         object_info_list = []
         altitude_plot_list = []
         observation_plot_list = []
+        moon_separation_list = []
 
         for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             df_altitude_plot = pd.DataFrame()
-            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0] if type(meta["comments"].iloc[0]) != float else "None"}'
 
-            df_altitude_plot['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in time]
-            df_altitude_plot['UT'] = time
-            df_altitude_plot['JST'] = jst
+            df_altitude_plot['UT'] = constants['UT']
+            df_altitude_plot['JST'] = constants['JST']
 
-            df_altitude_plot['Local sidereal time'] = [local_sidereal_time(day,longitude,ut) for day, ut in zip(df_altitude_plot['day_since_j2000'], time)]
-            df_altitude_plot['Local sidereal time in hours'] = df_altitude_plot['Local sidereal time']/15
-            df_altitude_plot['Local sidereal time DT'] = [adjust_lst(lst,day) for lst in df_altitude_plot['Local sidereal time in hours']]
-
-            df_altitude_plot['Hour angle'] = [hour_angle(lst,object['RA in deg']) for lst in df_altitude_plot['Local sidereal time']]
+            df_altitude_plot['Hour angle'] = [hour_angle(lst,object['RA in deg']) for lst in constants['Local sidereal time']]
 
             df_altitude_plot['Alt'] = [alt_az(latitude, object['Dec in deg'], ha)['altitude'] for ha in df_altitude_plot['Hour angle']]
             df_altitude_plot['Az'] = [alt_az(latitude, object['Dec in deg'], ha)['azimuth'] for ha in df_altitude_plot['Hour angle']]
 
+            df_altitude_plot['Moon separation'] = [moon_separation(alt,az,moon_alt,moon_az) for alt,az,moon_alt, moon_az in zip(df_altitude_plot['Alt'],df_altitude_plot['Az'],constants['Moon altitude'],constants['Moon azimuth'])]
+
+            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {np.round(np.max(df_altitude_plot["Moon separation"]),1)} (max) {np.round(np.min(df_altitude_plot["Moon separation"]),1)} (min)\nMoon: {object["Moon"]} (max)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0] if type(meta["comments"].iloc[0]) != float else "None"}'
+
+            #print(df_altitude_plot['Moon separation'])
             transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
             transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
@@ -427,6 +460,7 @@ with requests.Session() as s:
             altitude_plot_list.append(altitude_plot)
             observation_plot_list.append(observation_plot)
             object_info_list.append(object_info)
+            moon_separation_list.append(df_altitude_plot['Moon separation'])
             
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
@@ -460,15 +494,31 @@ with requests.Session() as s:
                         facecolor="white",
                         edgecolor="#ddd",
                         linewidth=0.5,
-                        #path_effects=[withSimplePatchShadow(offset=(1.5, -1.5))],
                     ),
                     linespacing=1.5,
                     arrowprops=None,
                 ),
                 highlight=True,
-                highlight_kwargs=dict(alpha=0.5,linewitdth=2)
+                highlight_kwargs=dict(alpha=0.5,linewitdth=2),
             )
-            
+        '''
+        cursor_2 = mplcursors.cursor(
+                altitude_plot_list,
+                hover=True,  # Transient
+                annotation_kwargs=dict(
+                    bbox=dict(
+                        boxstyle="square,pad=0.5",
+                        facecolor="white",
+                        edgecolor="#ddd",
+                        linewidth=0.5,
+                    ),
+                    linespacing=1.5,
+                    arrowprops=None,
+                ),
+                highlight=True,
+                highlight_kwargs=dict(alpha=0.5,linewitdth=2),
+            )
+        '''
         pairs = dict(zip(observation_plot_list, altitude_plot_list))
         pairs.update(zip(observation_plot_list,altitude_plot_list))
         pairs_2 = dict(zip(observation_plot_list, object_info_list))
@@ -477,13 +527,22 @@ with requests.Session() as s:
         @cursor.connect("add")
         def on_add(sel):
             sel.annotation.set_text(pairs_2[sel.artist])
-            #sel.annotation.set(position=(0, 0))
+            sel.annotation.set(position=(mdates.date2num(constants['UT'].iloc[-1]+datetime.timedelta(hours=0.5)), sel.target[1] if sel.target[1] > 0 else 0))
+            #print(mdates.date2num(time[-1]), sel.target[1])
             sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
-
+        '''
+        @cursor_2.connect("add")
+        def on_add(sel):
+            print(sel)
+            sel.annotation.set_text(moon_separation_list[int(sel.index)])
+            sel.annotation.set(position=(mdates.date2num(constants['UT'].iloc[-1]+datetime.timedelta(hours=0.5)), sel.target[1] if sel.target[1] > 0 else 0))
+            #print(mdates.date2num(time[-1]), sel.target[1])
+            sel.extras.append(cursor_2.add_highlight(pairs[sel.artist]))
+        '''
         ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax[0].xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax[0].xaxis.tick_top()
-        ax[0].set_xlim(mdates.date2num(jst[0]),mdates.date2num(jst[-1]))
+        ax[0].set_xlim(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]))
         ax[0].set_ylim(0,90)
         ax[0].tick_params(labelbottom=False,labeltop=True)
         ax[0].set_xlabel("Time (JST)")
@@ -493,7 +552,7 @@ with requests.Session() as s:
 
         ax[1].xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax[1].set_xlim(mdates.date2num(time[0]),mdates.date2num(time[-1]))
+        ax[1].set_xlim(mdates.date2num(constants['UT'].iloc[0]),mdates.date2num(constants['UT'].iloc[-1]))
         #ax[1].set_xlabel("Time (UT)")
 
         ax[1].set_xlabel("Time (UT)")
