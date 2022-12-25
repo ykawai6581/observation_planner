@@ -16,6 +16,7 @@ try:
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
     from matplotlib import gridspec
+    from matplotlib.animation import FuncAnimation
     import mplcursors
     import numpy as np
     import pandas as pd
@@ -157,10 +158,9 @@ def alt_at_time(df, longitude, latitude, mode):
     return df['Alt']
 
 def moon_position(longitude,latitude,lst):
-    print(lst)
     # Get the Moon's position in the ICRS (International Celestial Reference System) frame
     julian_date = (lst - longitude + (2451545.0 * 360.98564736629) - 280.46061837)/360.98564736629 
-    ecliptic_longitude = 218.316 + 13.176396 * julian_date
+    ecliptic_longitude = (218.316 + 13.176396 * julian_date)*2*np.pi/360
     ecliptic_latitude = 5.13 * np.sin(ecliptic_longitude*2*np.pi/360)
     right_ascension = math.degrees(math.atan2(np.cos(ecliptic_longitude*2*np.pi/360) * np.sin(ecliptic_latitude*2*np.pi/360), np.cos(ecliptic_latitude*2*np.pi/360)))
     declination = math.degrees(math.asin(math.sin(ecliptic_longitude*2*np.pi/360) * math.sin(ecliptic_latitude*2*np.pi/360)))
@@ -412,17 +412,23 @@ with requests.Session() as s:
         print(f'______Plan {i+1}/{len(plans)}___________________________________')
 
         #print(constants['Moon position'])
-        ax_airmass_plot.scatter(mdates.date2num(constants['JST']), constants['Moon altitude'], marker='D',color='black',s=2)
+        #ax_airmass_plot.scatter(mdates.date2num(constants['JST']), constants['Moon altitude'], marker='D',color='black',s=2)
         ax_polar_plot.bar(np.linspace(0,360,50),1,bottom=np.cos(30*2*np.pi/360), color='gray', alpha=0.4)
+        #ax_polar_plot.scatter(constants['Moon azimuth']*2*np.pi/360, np.cos(constants['Moon altitude']*2*np.pi/360), marker='D',color='black',s=2)
 
+        object_df_list = []
         object_info_list = []
         altitude_plot_list = []
         observation_plot_list = []
         moon_separation_list = []
         polar_plot_list = []
 
-        for index, object in plan.iterrows():
+        for index, object in plan.sort_values('Priority',ascending=False).iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
+            color = np.random.uniform(low=0.42, high=0.95, size=(3,))
+            text_color = color - 0.3
+            text_color = [item if item > 0 else 0 for item in text_color]
+
             df_altitude_plot = pd.DataFrame()
 
             df_altitude_plot['UT'] = constants['UT']
@@ -435,19 +441,8 @@ with requests.Session() as s:
 
             df_altitude_plot['Moon separation'] = [moon_separation(alt,az,moon_alt,moon_az) for alt,az,moon_alt, moon_az in zip(df_altitude_plot['Alt'],df_altitude_plot['Az'],constants['Moon altitude'],constants['Moon azimuth'])]
 
-            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {np.round(np.max(df_altitude_plot["Moon separation"]),1)} (max) {np.round(np.min(df_altitude_plot["Moon separation"]),1)} (min)\nMoon: {object["Moon"]} (max)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:20] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
+            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {np.round(np.max(df_altitude_plot["Moon separation"]),1)} (max) {np.round(np.min(df_altitude_plot["Moon separation"]),1)} (min)\nMoon: {object["Moon"]} (max)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
 
-            #print(df_altitude_plot['Moon separation'])
-            transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-            obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
-            transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-
-            #color = np.array([0.8,0.8,0.8])
-            color = np.random.uniform(low=0.42, high=0.95, size=(3,))
-            text_color = color - 0.3
-            text_color = [item if item > 0 else 0 for item in text_color]
-            #print(color)
-            #color = np.append(color,0.8)
             transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
             altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
             obs_lim_filter = (df_altitude_plot['Alt'] > 30) & (df_altitude_plot['Alt'] < 90)
@@ -455,25 +450,23 @@ with requests.Session() as s:
             intransit = df_altitude_plot[transit_filter]
             ootransit = df_altitude_plot[~transit_filter][altitude_filter]
 
-            jst_plt = object['Transit begin DT'] + datetime.timedelta(hours=9)
-            
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
             ax_airmass_plot.scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
-            '''
-            altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Az'], color=color, alpha=0.)
-            ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Az'], color=color, label=object['Name'],linestyle="solid")
-            ax_airmass_plot.scatter(mdates.date2num(ootransit['JST']), ootransit['Az'], color=color,s=2)
-            '''
+
+            transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+            obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
+            transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
             observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
             ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
 
-            print(df_altitude_plot['Az'],df_altitude_plot['Alt'])
             #ax_polar_plot.scatter(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,s=2)
             polar_plot, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,alpha=0)
 
+            object_df_list.append([df_altitude_plot[['Alt','Az']],object["Name"],text_color])
             altitude_plot_list.append(altitude_plot)
             observation_plot_list.append(observation_plot)
             object_info_list.append(object_info)
@@ -560,6 +553,30 @@ with requests.Session() as s:
             #print(mdates.date2num(time[-1]), sel.target[1])
             sel.extras.append(cursor_2.add_highlight(pairs[sel.artist]))
         '''
+        live_plot = ax_polar_plot.scatter(np.zeros(20), np.zeros(20), alpha=0,s=2)
+        live_time_jst = ax_airmass_plot.axvline(0)
+        live_time_ut = ax_gantt_plot.axvline(0)
+
+        def animate_planets(i):
+            now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+            if constants['UT'].iloc[0] < now and constants['UT'].iloc[-1] > now:
+                current_time = constants['UT'][constants['UT'] > now].index[0]
+                live_alt = [df[0]['Alt'].iloc[current_time] *2*np.pi/360 if df[0]['Alt'].iloc[current_time] > 0 else -90 for df in object_df_list] 
+                live_az = [df[0]['Az'].iloc[current_time] *2*np.pi/360 + (np.pi/2) for df in object_df_list]
+                live_color = [df[2] for df in object_df_list]
+                live_annotation = [df[1] for df in object_df_list]
+                live_plot = ax_polar_plot.scatter(live_az, np.cos(live_alt), color=live_color,s=2)
+                for label, alt, az, color in zip(live_annotation,live_alt,live_az,live_color):
+                    ax_polar_plot.annotate(label,(az, np.cos(alt)),color=color)
+                #print(np.transpose(np.asarray((live_az, np.cos(live_alt)))))
+                #live_plot.set_offsets(np.transpose(np.asarray(([],[]))))
+                
+                live_time_jst = ax_airmass_plot.axvline(mdates.date2num(now+datetime.timedelta(hours=9)))
+                live_time_ut = ax_gantt_plot.axvline(mdates.date2num(now))
+            return live_plot,
+
+        animation = FuncAnimation(fig, animate_planets ,interval = 1000, cache_frame_data=False)
+        
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax_airmass_plot.xaxis.tick_top()
@@ -570,6 +587,8 @@ with requests.Session() as s:
         ax_airmass_plot.xaxis.set_label_position('top')
 
         ax_airmass_plot.set_ylabel("Elevation")
+        ax_airmass_plot.set_yticks(np.linspace(0,90,10))
+        ax_airmass_plot.set_yticklabels([f'${int(angle)}^\circ$' for angle in np.linspace(0,90,10)])
 
         ax_gantt_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax_gantt_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
@@ -579,15 +598,22 @@ with requests.Session() as s:
         ax_gantt_plot.set_xlabel("Time (UT)")
         ax_gantt_plot.set_yticks([])
         ax_airmass_plot.set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
-
+        
+        #initialize live planet points
         ax_polar_plot.set_xticklabels(["E", "NE",f'N (0$^\circ$)', "NW", "W", "SW", "S", "SE", ])
         ax_polar_plot.set_ylim(0,1)
 
         ax_polar_plot.set_yticks([np.cos(0*2*np.pi/360),np.cos(30*2*np.pi/360),np.cos(60*2*np.pi/360),np.cos(90*2*np.pi/360)])
         ax_polar_plot.set_yticklabels([f'$0^\circ$',f'$30^\circ$',f'$60^\circ$',f'$90^\circ$'])
         ax_polar_plot.set_title(f'Sky view')
-
+        
         fig.tight_layout()
         #plt.subplots_adjust(right=0.7)
         plt.show()
+        '''
+        if constants['UT'].iloc[0] < datetime.datetime.utcnow() and constants['UT'].iloc[-1] > datetime.datetime.utcnow():
+            print(datetime.datetime.utcnow())
+        else:
+            print("outside time scope")
+        '''
         # note: altitude = 0 になる時間を解ける？
