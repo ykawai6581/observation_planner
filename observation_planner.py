@@ -422,6 +422,7 @@ with requests.Session() as s:
         observation_plot_list = []
         moon_separation_list = []
         polar_plot_list = []
+        polar_plot_trajectory_list = []
 
         for index, object in plan.sort_values('Priority',ascending=False).iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
@@ -463,7 +464,7 @@ with requests.Session() as s:
             observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
             ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
 
-            #ax_polar_plot.scatter(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,s=2)
+            polar_plot_trajectory, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360),color=color,alpha=0,linestyle="dotted")
             polar_plot, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,alpha=0)
 
             object_df_list.append([df_altitude_plot[['Alt','Az']],object["Name"],text_color])
@@ -472,6 +473,7 @@ with requests.Session() as s:
             object_info_list.append(object_info)
             moon_separation_list.append(df_altitude_plot['Moon separation'])
             polar_plot_list.append(polar_plot)
+            polar_plot_trajectory_list.append(polar_plot_trajectory)
 
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
@@ -536,6 +538,8 @@ with requests.Session() as s:
         pairs_2.update(zip(observation_plot_list,object_info_list))
         pairs_3 = dict(zip(observation_plot_list, polar_plot_list))
         pairs_3.update(zip(observation_plot_list,polar_plot_list))
+        pairs_4 = dict(zip(observation_plot_list, polar_plot_trajectory_list))
+        pairs_4.update(zip(observation_plot_list,polar_plot_trajectory_list))
         @cursor.connect("add")
         def on_add(sel):
             sel.annotation.set_text(pairs_2[sel.artist])
@@ -543,6 +547,7 @@ with requests.Session() as s:
             #print(mdates.date2num(time[-1]), sel.target[1])
             sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_3[sel.artist]))
+            sel.extras.append(cursor.add_highlight(pairs_4[sel.artist]))
 
         '''
         @cursor_2.connect("add")
@@ -553,29 +558,40 @@ with requests.Session() as s:
             #print(mdates.date2num(time[-1]), sel.target[1])
             sel.extras.append(cursor_2.add_highlight(pairs[sel.artist]))
         '''
-        live_plot = ax_polar_plot.scatter(np.zeros(20), np.zeros(20), alpha=0,s=2)
+        live_plot = ax_polar_plot.scatter([],[])
         live_time_jst = ax_airmass_plot.axvline(0)
         live_time_ut = ax_gantt_plot.axvline(0)
-
+        live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
         def animate_planets(i):
-            now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+            #print(i)
+            now = datetime.datetime.utcnow()
             if constants['UT'].iloc[0] < now and constants['UT'].iloc[-1] > now:
-                current_time = constants['UT'][constants['UT'] > now].index[0]
-                live_alt = [df[0]['Alt'].iloc[current_time] *2*np.pi/360 if df[0]['Alt'].iloc[current_time] > 0 else -90 for df in object_df_list] 
-                live_az = [df[0]['Az'].iloc[current_time] *2*np.pi/360 + (np.pi/2) for df in object_df_list]
-                live_color = [df[2] for df in object_df_list]
-                live_annotation = [df[1] for df in object_df_list]
-                live_plot = ax_polar_plot.scatter(live_az, np.cos(live_alt), color=live_color,s=2)
-                for label, alt, az, color in zip(live_annotation,live_alt,live_az,live_color):
-                    ax_polar_plot.annotate(label,(az, np.cos(alt)),color=color)
-                #print(np.transpose(np.asarray((live_az, np.cos(live_alt)))))
-                #live_plot.set_offsets(np.transpose(np.asarray(([],[]))))
-                
-                live_time_jst = ax_airmass_plot.axvline(mdates.date2num(now+datetime.timedelta(hours=9)))
-                live_time_ut = ax_gantt_plot.axvline(mdates.date2num(now))
-            return live_plot,
+                live_time_jst.set_xdata([mdates.date2num(now+datetime.timedelta(hours=9))])# = ax_airmass_plot.axvline(mdates.date2num(now+datetime.timedelta(hours=9)))
+                live_time_ut.set_xdata([mdates.date2num(now)])# = ax_gantt_plot.axvline(mdates.date2num(now))
+                live_time_ut.set_color("pink")
+                live_time_jst.set_color("pink")
+                if i == 0 or i%600 == 0:
+                    current_time = constants['UT'][constants['UT'] > now].index[0]
+                    live_alt = [df[0]['Alt'].iloc[current_time] *2*np.pi/360 if df[0]['Alt'].iloc[current_time] > 0 else -90 for df in object_df_list] 
+                    live_az = [df[0]['Az'].iloc[current_time] *2*np.pi/360 + (np.pi/2) for df in object_df_list]
+                    live_color = [df[2] for df in object_df_list]
+                    live_name = [df[1] for df in object_df_list]
+                    live_plot.set_offsets(np.transpose(np.asarray((live_az, np.cos(live_alt)))))#, color=live_color,s=2)
+                    live_plot.set_color(live_color)
+                    
+                    for polar_plot, polar_plot_trajectory, df in zip(polar_plot_list,polar_plot_trajectory_list, object_df_list):
+                        trajectory = df[0][current_time+1:][df[0]['Alt'] > 0]*2*np.pi/360
+                        path = df[0][:current_time][df[0]['Alt'] > 0]*2*np.pi/360
+                        polar_plot_trajectory.set_data(trajectory['Az'] + (np.pi/2),np.cos(trajectory['Alt']))#, color=live_color,s=2)
+                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))
 
-        animation = FuncAnimation(fig, animate_planets ,interval = 1000, cache_frame_data=False)
+                    for live_annotation, text, alt, az, color in zip(live_annotations,live_name,live_alt,live_az,live_color):
+                            live_annotation.set_position((az,np.cos(alt)))
+                            live_annotation.set_text(text)
+                            live_annotation.set_color(color)
+
+
+        animation = FuncAnimation(fig, animate_planets ,interval = 1000)
         
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
