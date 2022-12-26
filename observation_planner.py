@@ -30,6 +30,7 @@ except ModuleNotFoundError:
 
 
 warnings.filterwarnings("ignore")
+#warnings.filterwarnings('ignore', message="posx and posy should be finite values")
 
 parser = argparse.ArgumentParser(description=\
 '## obslog formatter ver. 2022 Nov. 19 ##')
@@ -180,6 +181,7 @@ with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
     j2000 = datetime.datetime(2000,1,1,12)
+    resolution = 10
 
     latitude, longitude = 28.3, -16.5097
 
@@ -398,7 +400,7 @@ with requests.Session() as s:
     #jst  = [item + datetime.timedelta(hours=9) for item in ut]
 
     constants = pd.DataFrame()
-    constants['UT'] = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
+    constants['UT'] = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=resolution)).astype(datetime.datetime)
     constants['JST'] = [item + datetime.timedelta(hours=9) for item in constants['UT']]
     constants['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in constants['UT']]
 
@@ -447,7 +449,7 @@ with requests.Session() as s:
 
             df_altitude_plot['Moon separation'] = [moon_separation(alt,az,moon_alt,moon_az) for alt,az,moon_alt, moon_az in zip(df_altitude_plot['Alt'],df_altitude_plot['Az'],constants['Moon altitude'],constants['Moon azimuth'])]
 
-            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {np.round(np.max(df_altitude_plot["Moon separation"]),1)} (max) {np.round(np.min(df_altitude_plot["Moon separation"]),1)} (min)\nMoon: {object["Moon"]} (max)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
+            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {object["Moon"]} (min)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
 
             transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
             altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
@@ -571,14 +573,13 @@ with requests.Session() as s:
         live_time_ut = ax_gantt_plot.axvline(0)
         live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
         def animate_planets(i):
-            #print(i)
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.utcnow()-datetime.timedelta(hours=5)#+datetime.timedelta(minutes=i*5)
             if constants['UT'].iloc[0] < now and constants['UT'].iloc[-1] > now:
                 live_time_jst.set_xdata([mdates.date2num(now+datetime.timedelta(hours=9))])# = ax_airmass_plot.axvline(mdates.date2num(now+datetime.timedelta(hours=9)))
                 live_time_ut.set_xdata([mdates.date2num(now)])# = ax_gantt_plot.axvline(mdates.date2num(now))
                 live_time_ut.set_color("pink")
                 live_time_jst.set_color("pink")
-                if i == 0 or i%600 == 0:
+                if i == 0 or i%(resolution*60) == 0:
                     current_time = constants['UT'][constants['UT'] > now].index[0]
                     live_alt = [df[0]['Alt'].iloc[current_time] *2*np.pi/360 if df[0]['Alt'].iloc[current_time] > 0 else -90 for df in object_df_list] 
                     live_az = [df[0]['Az'].iloc[current_time] *2*np.pi/360 + (np.pi/2) for df in object_df_list]
@@ -586,21 +587,17 @@ with requests.Session() as s:
                     live_name = [df[1] for df in object_df_list]
                     live_plot.set_offsets(np.transpose(np.asarray((live_az, np.cos(live_alt)))))#, color=live_color,s=2)
                     live_plot.set_color(live_color)
-                    
+                    for live_annotation, text, alt, az, color in zip(live_annotations,live_name,live_alt,live_az,live_color):
+                            live_annotation.set_position((az,np.cos(alt)))
+                            live_annotation.set_text(text)
+                            live_annotation.set_color(color)
                     for polar_plot, polar_plot_trajectory, df in zip(polar_plot_list,polar_plot_trajectory_list, object_df_list):
                         trajectory = df[0][current_time+1:][df[0]['Alt'] > 0]*2*np.pi/360
                         path = df[0][:current_time][df[0]['Alt'] > 0]*2*np.pi/360
                         polar_plot_trajectory.set_data(trajectory['Az'] + (np.pi/2),np.cos(trajectory['Alt']))#, color=live_color,s=2)
-                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))
-
-                    for live_annotation, text, alt, az, color in zip(live_annotations,live_name,live_alt,live_az,live_color):
-                            print(az,np.cos(alt))
-                            live_annotation.set_position((az,np.cos(alt)))
-                            live_annotation.set_text(text)
-                            live_annotation.set_color(color)
-
-
-        animation = FuncAnimation(fig, animate_planets ,interval = 1000)
+                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                    
+            
+        animation = FuncAnimation(fig, animate_planets, interval = 1000)
         
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
