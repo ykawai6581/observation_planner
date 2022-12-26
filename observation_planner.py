@@ -169,7 +169,13 @@ def moon_position(longitude,latitude,lst):
 def moon_separation(alt,az,moon_alt, moon_az):
     separation = np.sin(moon_alt*2*np.pi/360)*np.sin(alt*2*np.pi/360) + np.cos(moon_alt*2*np.pi/360)*np.cos(alt*2*np.pi/360)*np.cos(np.abs((az*2*np.pi/360) - moon_az*2*np.pi/360))
     return np.arccos(separation)*360/(2*np.pi)
-    
+
+def darken_color(color,value):
+    color = color - value
+    color = [item if item > 0 else 0 for item in color]
+    color = [item if item < 1 else 1 for item in color]
+    return color
+
 with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
@@ -413,7 +419,7 @@ with requests.Session() as s:
 
         #print(constants['Moon position'])
         #ax_airmass_plot.scatter(mdates.date2num(constants['JST']), constants['Moon altitude'], marker='D',color='black',s=2)
-        ax_polar_plot.bar(np.linspace(0,360,50),1,bottom=np.cos(30*2*np.pi/360), color='gray', alpha=0.4)
+        ax_polar_plot.bar(np.linspace(0,360,50),1,bottom=np.cos(30*2*np.pi/360), color='pink', alpha=0.4)
         #ax_polar_plot.scatter(constants['Moon azimuth']*2*np.pi/360, np.cos(constants['Moon altitude']*2*np.pi/360), marker='D',color='black',s=2)
 
         object_df_list = []
@@ -427,8 +433,7 @@ with requests.Session() as s:
         for index, object in plan.sort_values('Priority',ascending=False).iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             color = np.random.uniform(low=0.42, high=0.95, size=(3,))
-            text_color = color - 0.3
-            text_color = [item if item > 0 else 0 for item in text_color]
+            text_color = darken_color(color, 0.3)
 
             df_altitude_plot = pd.DataFrame()
 
@@ -457,12 +462,14 @@ with requests.Session() as s:
 
             transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
+            max_duration = mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[0]) - mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1])
             transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-
+            
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
-            ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color,alpha=0.5,height=1,)#, left=df_altitude_plot['JST']) 
+            ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color, alpha=0.5, height=1,)#, left=df_altitude_plot['JST']) 
             observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
             ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
+            ax_gantt_plot.hlines(object['Name'], df_altitude_plot['UT'][obs_lim_filter].iloc[0],df_altitude_plot['UT'][obs_lim_filter].iloc[-1] , color=color,alpha=0.2)#, left=df_altitude_plot['JST'])
 
             polar_plot_trajectory, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360),color=color,alpha=0,linestyle="dotted")
             polar_plot, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,alpha=0)
@@ -493,10 +500,10 @@ with requests.Session() as s:
             #plt.plot(time, df_altitude_plot['Alt'], color='red')    
         #plt.xlim(0,90)
 
-        ax_airmass_plot.axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)))
-        ax_airmass_plot.axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)))
-        ax_gantt_plot.axvline(mdates.date2num(morning_twilight))
-        ax_gantt_plot.axvline(mdates.date2num(night_twilight))
+        ax_airmass_plot.axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)),alpha=0.5)
+        ax_airmass_plot.axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)),alpha=0.5)
+        ax_gantt_plot.axvline(mdates.date2num(morning_twilight),alpha=0.5)
+        ax_gantt_plot.axvline(mdates.date2num(night_twilight),alpha=0.5)
 
         cursor = mplcursors.cursor(
                 observation_plot_list,
@@ -512,7 +519,7 @@ with requests.Session() as s:
                     arrowprops=None,
                 ),
                 highlight=True,
-                highlight_kwargs=dict(alpha=0.5,linewitdth=2),
+                highlight_kwargs=dict(alpha=0.5),
             )
         '''
         cursor_2 = mplcursors.cursor(
@@ -540,6 +547,7 @@ with requests.Session() as s:
         pairs_3.update(zip(observation_plot_list,polar_plot_list))
         pairs_4 = dict(zip(observation_plot_list, polar_plot_trajectory_list))
         pairs_4.update(zip(observation_plot_list,polar_plot_trajectory_list))
+
         @cursor.connect("add")
         def on_add(sel):
             sel.annotation.set_text(pairs_2[sel.artist])
@@ -586,6 +594,7 @@ with requests.Session() as s:
                         polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))
 
                     for live_annotation, text, alt, az, color in zip(live_annotations,live_name,live_alt,live_az,live_color):
+                            print(az,np.cos(alt))
                             live_annotation.set_position((az,np.cos(alt)))
                             live_annotation.set_text(text)
                             live_annotation.set_color(color)
@@ -609,7 +618,6 @@ with requests.Session() as s:
         ax_gantt_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax_gantt_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_gantt_plot.set_xlim(mdates.date2num(constants['UT'].iloc[0]),mdates.date2num(constants['UT'].iloc[-1]))
-        #ax_gantt_plot.set_xlabel("Time (UT)")
 
         ax_gantt_plot.set_xlabel("Time (UT)")
         ax_gantt_plot.set_yticks([])
@@ -620,11 +628,11 @@ with requests.Session() as s:
         ax_polar_plot.set_ylim(0,1)
 
         ax_polar_plot.set_yticks([np.cos(0*2*np.pi/360),np.cos(30*2*np.pi/360),np.cos(60*2*np.pi/360),np.cos(90*2*np.pi/360)])
-        ax_polar_plot.set_yticklabels([f'$0^\circ$',f'$30^\circ$',f'$60^\circ$',f'$90^\circ$'])
+        ax_polar_plot.set_yticklabels([f'$0^\circ$',f'$30^\circ$',f'$60^\circ$',f'$90^\circ$'],color="gray")
         ax_polar_plot.set_title(f'Sky view')
         
         fig.tight_layout()
-        #plt.subplots_adjust(right=0.7)
+        plt.subplots_adjust(hspace=0.)
         plt.show()
         '''
         if constants['UT'].iloc[0] < datetime.datetime.utcnow() and constants['UT'].iloc[-1] > datetime.datetime.utcnow():
