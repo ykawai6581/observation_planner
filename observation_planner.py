@@ -30,7 +30,7 @@ except ModuleNotFoundError:
 
 
 warnings.filterwarnings("ignore")
-#warnings.filterwarnings('ignore', message="posx and posy should be finite values")
+warnings.filterwarnings('ignore', message="posx and posy should be finite values")
 
 parser = argparse.ArgumentParser(description=\
 '## obslog formatter ver. 2022 Nov. 19 ##')
@@ -573,13 +573,19 @@ with requests.Session() as s:
         live_time_ut = ax_gantt_plot.axvline(0)
         live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
         def animate_planets(i):
-            now = datetime.datetime.utcnow()-datetime.timedelta(hours=5)#+datetime.timedelta(minutes=i*5)
+            now = datetime.datetime.utcnow()
+            past_midnight = day + datetime.timedelta(days=1)
+            today = (day.year == now.year and day.month == now.month and day.day == now.day and now.hour > 12) or (past_midnight.year == now.year and past_midnight.month == now.month and past_midnight.day == now.day and now.hour < 12)
+            if today:
+                pass
+            else:
+                now = constants['UT'].iloc[0] + datetime.timedelta(minutes=(i*5))
             if constants['UT'].iloc[0] < now and constants['UT'].iloc[-1] > now:
                 live_time_jst.set_xdata([mdates.date2num(now+datetime.timedelta(hours=9))])# = ax_airmass_plot.axvline(mdates.date2num(now+datetime.timedelta(hours=9)))
                 live_time_ut.set_xdata([mdates.date2num(now)])# = ax_gantt_plot.axvline(mdates.date2num(now))
                 live_time_ut.set_color("pink")
                 live_time_jst.set_color("pink")
-                if i == 0 or i%(resolution*60) == 0:
+                if (i==0 or i%(resolution*60) == 0) or (not today):
                     current_time = constants['UT'][constants['UT'] > now].index[0]
                     live_alt = [df[0]['Alt'].iloc[current_time] *2*np.pi/360 if df[0]['Alt'].iloc[current_time] > 0 else -90 for df in object_df_list] 
                     live_az = [df[0]['Az'].iloc[current_time] *2*np.pi/360 + (np.pi/2) for df in object_df_list]
