@@ -28,7 +28,6 @@ except ModuleNotFoundError:
     print('_________________________________________________\n')
     sys.exit(1)
 
-
 warnings.filterwarnings("ignore")
 warnings.filterwarnings('ignore', message="posx and posy should be finite values")
 
@@ -309,7 +308,6 @@ with requests.Session() as s:
     df['Moon'] = [float(item[:-2]) for item in df['Moon']]
     df = df[df['Moon'] > 30]
 
-    #print(df)
     ##RA Decからminimum&maximum
     ##whichever the direction in which the star is facing in the ra direction, 
     # we are only interested in the change in dec over time, because a telescope can point to any direction horizontally 
@@ -363,9 +361,6 @@ with requests.Session() as s:
 
     #上のコードは全ての天体のトランジット開始時刻でのaltitudeの計算
     #ここからは全ての天体について任意の時刻でできるように書き直し
-    
-
-    #targets_filter = np.array([item in df['Name'].tolist() for item in targets_df['name']])
 
     if not args.all:
         df_sorted = df.sort_values('Obs begin DT')
@@ -395,10 +390,6 @@ with requests.Session() as s:
         #plans = [df.sort_values('Obs begin DT',ascending=False)]
         plans = [df]
 
-
-    #ut = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=10)).astype(datetime.datetime)
-    #jst  = [item + datetime.timedelta(hours=9) for item in ut]
-
     constants = pd.DataFrame()
     constants['UT'] = np.arange(night_twilight-datetime.timedelta(minutes=30),morning_twilight+datetime.timedelta(minutes=30), datetime.timedelta(minutes=resolution)).astype(datetime.datetime)
     constants['JST'] = [item + datetime.timedelta(hours=9) for item in constants['UT']]
@@ -416,6 +407,11 @@ with requests.Session() as s:
         ax_airmass_plot = plt.subplot(gs[0,0])
         ax_gantt_plot   = plt.subplot(gs[1,0])
         ax_polar_plot   = plt.subplot(gs[0,1],polar=True)
+
+        ax_airmass_plot.axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)),alpha=0.5)
+        ax_airmass_plot.axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)),alpha=0.5)
+        ax_gantt_plot.axvline(mdates.date2num(morning_twilight),alpha=0.5)
+        ax_gantt_plot.axvline(mdates.date2num(night_twilight),alpha=0.5)
 
         print(f'______Plan {i+1}/{len(plans)}___________________________________')
 
@@ -499,15 +495,7 @@ with requests.Session() as s:
             if type(meta["comments_sg1"].iloc[0]) != float:
                 print(f'SG1 comments: {meta["comments_sg1"].iloc[0]}')
             
-                #time.sleep(2)
         print('_________________________________________________')
-            #plt.plot(time, df_altitude_plot['Alt'], color='red')    
-        #plt.xlim(0,90)
-
-        ax_airmass_plot.axvline(mdates.date2num(morning_twilight + datetime.timedelta(hours=9)),alpha=0.5)
-        ax_airmass_plot.axvline(mdates.date2num(night_twilight + datetime.timedelta(hours=9)),alpha=0.5)
-        ax_gantt_plot.axvline(mdates.date2num(morning_twilight),alpha=0.5)
-        ax_gantt_plot.axvline(mdates.date2num(night_twilight),alpha=0.5)
 
         cursor = mplcursors.cursor(
                 observation_plot_list,
@@ -525,24 +513,7 @@ with requests.Session() as s:
                 highlight=True,
                 highlight_kwargs=dict(alpha=0.5),
             )
-        '''
-        cursor_2 = mplcursors.cursor(
-                altitude_plot_list,
-                hover=True,  # Transient
-                annotation_kwargs=dict(
-                    bbox=dict(
-                        boxstyle="square,pad=0.5",
-                        facecolor="white",
-                        edgecolor="#ddd",
-                        linewidth=0.5,
-                    ),
-                    linespacing=1.5,
-                    arrowprops=None,
-                ),
-                highlight=True,
-                highlight_kwargs=dict(alpha=0.5,linewitdth=2),
-            )
-        '''
+
         pairs = dict(zip(observation_plot_list, altitude_plot_list))
         pairs.update(zip(observation_plot_list,altitude_plot_list))
         pairs_2 = dict(zip(observation_plot_list, object_info_list))
@@ -558,26 +529,16 @@ with requests.Session() as s:
         def on_add(sel):
             sel.annotation.set_text(pairs_2[sel.artist])
             sel.annotation.set(position=(mdates.date2num(constants['UT'].iloc[-1]+datetime.timedelta(hours=0.5)), 0))
-            #print(mdates.date2num(time[-1]), sel.target[1])
             sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_3[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_4[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_5[sel.artist]))
 
-
-        '''
-        @cursor_2.connect("add")
-        def on_add(sel):
-            print(sel)
-            sel.annotation.set_text(moon_separation_list[int(sel.index)])
-            sel.annotation.set(position=(mdates.date2num(constants['UT'].iloc[-1]+datetime.timedelta(hours=0.5)), sel.target[1] if sel.target[1] > 0 else 0))
-            #print(mdates.date2num(time[-1]), sel.target[1])
-            sel.extras.append(cursor_2.add_highlight(pairs[sel.artist]))
-        '''
         live_plot = ax_polar_plot.scatter([],[])
         live_time_jst = ax_airmass_plot.axvline(0)
         live_time_ut = ax_gantt_plot.axvline(0)
         live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
+
         def animate_planets(i):
             now = datetime.datetime.utcnow()
             past_midnight = day + datetime.timedelta(days=1)
@@ -611,8 +572,9 @@ with requests.Session() as s:
                         polar_plot_trajectory.set_data(trajectory['Az'] + (np.pi/2),np.cos(trajectory['Alt']))#, color=live_color,s=2)
                         polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                    
             
-        animation = FuncAnimation(fig, animate_planets, interval = 1000)
-        
+        animation = FuncAnimation(fig, animate_planets, interval = 1000,)
+
+        ax_airmass_plot.set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
         ax_airmass_plot.xaxis.tick_top()
@@ -621,7 +583,6 @@ with requests.Session() as s:
         ax_airmass_plot.tick_params(labelbottom=False,labeltop=True)
         ax_airmass_plot.set_xlabel("Time (JST)")
         ax_airmass_plot.xaxis.set_label_position('top')
-
         ax_airmass_plot.set_ylabel("Elevation")
         ax_airmass_plot.set_yticks(np.linspace(0,90,10))
         ax_airmass_plot.set_yticklabels([f'${int(angle)}^\circ$' for angle in np.linspace(0,90,10)])
@@ -632,9 +593,7 @@ with requests.Session() as s:
 
         ax_gantt_plot.set_xlabel("Time (UT)")
         ax_gantt_plot.set_yticks([])
-        ax_airmass_plot.set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
         
-        #initialize live planet points
         ax_polar_plot.set_xticklabels(["E", "NE",f'N (0$^\circ$)', "NW", "W", "SW", "S", "SE", ])
         ax_polar_plot.set_ylim(0,1)
 
@@ -645,10 +604,4 @@ with requests.Session() as s:
         fig.tight_layout()
         plt.subplots_adjust(hspace=0.)
         plt.show()
-        '''
-        if constants['UT'].iloc[0] < datetime.datetime.utcnow() and constants['UT'].iloc[-1] > datetime.datetime.utcnow():
-            print(datetime.datetime.utcnow())
-        else:
-            print("outside time scope")
-        '''
         # note: altitude = 0 になる時間を解ける？
