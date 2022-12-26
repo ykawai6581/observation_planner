@@ -427,6 +427,7 @@ with requests.Session() as s:
         object_df_list = []
         object_info_list = []
         altitude_plot_list = []
+        altitude_marker_list = []
         observation_plot_list = []
         moon_separation_list = []
         polar_plot_list = []
@@ -461,10 +462,10 @@ with requests.Session() as s:
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
             ax_airmass_plot.scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
+            altitude_marker, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), np.full(len(df_altitude_plot),0) , color="pink",alpha=0.0,)#, left=df_altitude_plot['JST'])
 
             transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
-            max_duration = mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[0]) - mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1])
             transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
@@ -478,6 +479,7 @@ with requests.Session() as s:
 
             object_df_list.append([df_altitude_plot[['Alt','Az']],object["Name"],text_color])
             altitude_plot_list.append(altitude_plot)
+            altitude_marker_list.append(altitude_marker)
             observation_plot_list.append(observation_plot)
             object_info_list.append(object_info)
             moon_separation_list.append(df_altitude_plot['Moon separation'])
@@ -549,6 +551,8 @@ with requests.Session() as s:
         pairs_3.update(zip(observation_plot_list,polar_plot_list))
         pairs_4 = dict(zip(observation_plot_list, polar_plot_trajectory_list))
         pairs_4.update(zip(observation_plot_list,polar_plot_trajectory_list))
+        pairs_5 = dict(zip(observation_plot_list, altitude_marker_list))
+        pairs_5.update(zip(observation_plot_list,altitude_marker_list))
 
         @cursor.connect("add")
         def on_add(sel):
@@ -558,6 +562,8 @@ with requests.Session() as s:
             sel.extras.append(cursor.add_highlight(pairs[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_3[sel.artist]))
             sel.extras.append(cursor.add_highlight(pairs_4[sel.artist]))
+            sel.extras.append(cursor.add_highlight(pairs_5[sel.artist]))
+
 
         '''
         @cursor_2.connect("add")
@@ -593,6 +599,8 @@ with requests.Session() as s:
                     live_name = [df[1] for df in object_df_list]
                     live_plot.set_offsets(np.transpose(np.asarray((live_az, np.cos(live_alt)))))#, color=live_color,s=2)
                     live_plot.set_color(live_color)
+                    for alt, altitude_marker in zip(live_alt,altitude_marker_list):
+                        altitude_marker.set_data([mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1])],[alt*360/(2*np.pi),alt*360/(2*np.pi)])
                     for live_annotation, text, alt, az, color in zip(live_annotations,live_name,live_alt,live_az,live_color):
                             live_annotation.set_position((az,np.cos(alt)))
                             live_annotation.set_text(text)
