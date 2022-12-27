@@ -10,7 +10,6 @@ import time
 import sys
 import math
 try:
-    from astropy.coordinates import get_moon, EarthLocation
     from astropy import units as u
     from bs4 import BeautifulSoup
     import matplotlib.pyplot as plt
@@ -344,8 +343,10 @@ with requests.Session() as s:
 
     df_start = alt_at_time(df,longitude,latitude,"start")
     df_end = alt_at_time(df,longitude,latitude,"end")
-    df = df[df_start > 30]
-    df = df[df_end> 30]
+    #df = df[df_start > 30]
+    #df = df[df_end> 30]
+
+    print(df)
 
     #df = df[df['Obs begin DT'] > night_twilight]
     #df = df[df['Obs end DT'] < morning_twilight]
@@ -429,7 +430,9 @@ with requests.Session() as s:
         polar_plot_list = []
         polar_plot_trajectory_list = []
 
-        for index, object in plan.sort_values('Priority',ascending=False).iterrows():
+        #print(plans[0].columns)
+
+        for index, object in plan.sort_values(['Filler','Priority'],ascending=[False,False]).iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             color = np.random.uniform(low=0.42, high=0.95, size=(3,))
             text_color = darken_color(color, 0.3)
@@ -446,7 +449,10 @@ with requests.Session() as s:
 
             df_altitude_plot['Moon separation'] = [moon_separation(alt,az,moon_alt,moon_az) for alt,az,moon_alt, moon_az in zip(df_altitude_plot['Alt'],df_altitude_plot['Az'],constants['Moon altitude'],constants['Moon azimuth'])]
 
-            object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {object["Moon"]} (min)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
+            try:
+                object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nTransit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})\nObs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}\nMoon: {object["Moon"]} (min)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
+            except ValueError:
+                object_info = f'{object["Name"]} (Priority {object["Priority"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nMoon: {object["Moon"]} (min)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:21] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][21:40] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 20 else ""}\n\n\n\n\n\n'
 
             transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
             altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
@@ -463,11 +469,16 @@ with requests.Session() as s:
             transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
             transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-            
+            obs_max_duration = mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[0]) - mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1])
+
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
             ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color, alpha=0.5, height=1,)#, left=df_altitude_plot['JST']) 
-            observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
-            ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
+            if type(object['Obs begin DT']) != pd._libs.tslibs.nattype.NaTType:
+                observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
+                ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
+            else:
+                observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1]), width=obs_max_duration, color="gray",height=0.5,alpha=0.5)#, left=df_altitude_plot['JST'])
+                ax_gantt_plot.text(mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1]) + obs_max_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}|{object["Filler"]}]', va='center' ,ha='center', fontsize=10, color="black",weight='bold')
             ax_gantt_plot.hlines(object['Name'], df_altitude_plot['UT'][obs_lim_filter].iloc[0],df_altitude_plot['UT'][obs_lim_filter].iloc[-1] , color=color,alpha=0.2)#, left=df_altitude_plot['JST'])
 
             polar_plot_trajectory, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360),color=color,alpha=0,linestyle="dotted")
@@ -484,8 +495,11 @@ with requests.Session() as s:
 
             print(f'\n{object["Name"]} (Priority {object["Priority"]})')
             print(f'RA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}')
-            print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
-            print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
+            try:
+                print(f'Transit time: {object["Transit begin DT"].strftime("%H:%M")} - {object["Transit end DT"].strftime("%H:%M")} ({object["Acc period error"][0:7]})')
+                print(f'Obs time: {object["Obs begin DT"].strftime("%H:%M")} - {object["Obs end DT"].strftime("%H:%M")}')
+            except ValueError:
+                pass
             if meta["V_mag"].iloc[0] != '':
                 print(f'Vmag: {float(meta["V_mag"])}')
             else:
