@@ -654,34 +654,36 @@ with requests.Session() as s:
             random_int = random.randint(0,len(column)-1)
             column[random_int] = 1
             random_matrix.append(column)
-        
+        #縦軸に1が一つずつ入っている行列を生成
         random_matrix = np.array(random_matrix).T
         df_separation = df_separation.fillna(0).reset_index().drop(columns='index')
-        cost_previous = 0
         np.set_printoptions(threshold=np.inf)
         
+        '''
         for column in random_matrix.T:
             print(np.sum(column))
-        print(random_matrix)
-        
+        '''
+
+        cost_previous = 999
+        count = 0
+        accepted = 0
+
         while True:
-            random_row = random.randint(0,random_matrix.shape[0]-1)
             random_col = random.randint(0,random_matrix.shape[1]-1)
-            jump_from = np.where(random_matrix[:,random_col] == 1)[0][0]
-            jump_to = random.randint(0,random_matrix.shape[0]-1)
+            jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
+            jump_to    = random.randint(0,random_matrix.shape[0]-1)
             
             while jump_from == jump_to:
                 jump_to = random.randint(0,random_matrix.shape[0]-1)
 
             random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
             dimensions = random_matrix.shape[0]*random_matrix.shape[1]
-            plan_value = np.sum(np.array(observation_matrix).T@random_matrix)/dimensions
+            plan_value = np.sum(observation_matrix*random_matrix)#/dimensions
 
-            print(f'{jump_from} => {jump_to}')
+            print(f'{random_col} {jump_from} => {random_col} {jump_to}')
             total_separation = 0
             target_switch = 0
             #print(f'{jump_from} => {jump_to}')
-            observation_matrix = np.array(observation_matrix)
 
             for j in range(0,random_matrix.shape[1]):
                 index_current = np.where(random_matrix[:,j] == 1)[0][0]
@@ -690,27 +692,36 @@ with requests.Session() as s:
                 except IndexError:
                     index_next = np.where(random_matrix[:,j] == 1)[0][0]
                 separation = df_separation.iloc[index_next,index_current]
+                #print(separation)
                 total_separation += separation/360
                 if separation == 0.0:
                     pass#total_separation -= 100
                 else:
                     target_switch += 1
-            cost_current =  total_separation**3 + target_switch - plan_value
+            #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
+            cost_current = target_switch * total_separation**3. / plan_value
             #コストは小さい方がいいように考えている
             r = random.random()
             beta = 10
             delta = cost_current - cost_previous
             if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
+                accepted += 1
                 print("accepted")
+                cost_previous = cost_current
+            else:
+                print("rejected")
+                random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+            '''
             else:
                 if r < np.exp(-beta*delta):
+                    accepted += 1
                     print("accepted")
                 else:
                     print("rejected")
                     random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
                     #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
-            cost_previous = cost_current
-            np.set_printoptions(threshold=np.inf)
+            '''
+            np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
             merged_matrix = []
             for value, observe in zip(observation_matrix, random_matrix):
@@ -718,12 +729,13 @@ with requests.Session() as s:
                 merged_matrix.append(observation_tuple)
             print(random_matrix.astype(int))
             print(merged_matrix)
-            print(f'r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
-            print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target swith: {target_switch}')
+            count += 1
+            print(f'acceptance: {(accepted/count)*100:.1f}% r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
+            print(f'count: {count} total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch}')
             if target_switch < 4:
                 sys.exit(1)
             #pd.set_option('display.max_columns', None)
             #pd.set_option('display.expand_frame_repr', False)
-            #print(df_separation)
+            #print(np.array(observation_matrix))
         #print(np.array(observation_matrix).shape)
         # note: altitude = 0 になる時間を解ける？
