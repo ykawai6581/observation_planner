@@ -699,11 +699,12 @@ with requests.Session() as s:
                 else:
                     target_switch += 1
             #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
-            cost_current = target_switch * total_separation**3. / plan_value
+            cost_current = target_switch * total_separation**3.5 / plan_value
             #コストは小さい方がいいように考えている
             r = random.random()
             beta = 10
             delta = cost_current - cost_previous
+            
             if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
                 accepted += 1
                 print("accepted")
@@ -712,14 +713,14 @@ with requests.Session() as s:
                 print("rejected")
                 random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
             '''
+            if r < np.exp(-beta*delta):
+                accepted += 1
+                cost_previous = cost_current
+                print("accepted")
             else:
-                if r < np.exp(-beta*delta):
-                    accepted += 1
-                    print("accepted")
-                else:
-                    print("rejected")
-                    random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-                    #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
+                print("rejected")
+                random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+                #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
             '''
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
