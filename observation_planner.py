@@ -9,6 +9,7 @@ import getpass
 import time
 import sys
 import math
+import random
 try:
     from astropy import units as u
     from bs4 import BeautifulSoup
@@ -168,6 +169,15 @@ def moon_position(longitude,latitude,lst):
 def moon_separation(alt,az,moon_alt, moon_az):
     separation = np.sin(moon_alt*2*np.pi/360)*np.sin(alt*2*np.pi/360) + np.cos(moon_alt*2*np.pi/360)*np.cos(alt*2*np.pi/360)*np.cos(np.abs((az*2*np.pi/360) - moon_az*2*np.pi/360))
     return np.arccos(separation)*360/(2*np.pi)
+
+def object_separation(ra1,dec1,ra2,dec2):
+    ra1  = ra1*2*np.pi/360
+    dec1 = dec1*2*np.pi/360
+    ra2  = ra2*2*np.pi/360
+    dec2 = dec2*2*np.pi/360
+
+    separation = np.arccos(np.cos(dec1)*np.cos(dec2)+np.sin(dec1)*np.sin(dec2)*np.cos(np.abs(ra1-ra2)))*360/(2*np.pi)
+    return np.round(separation,3)
 
 def darken_color(color,value):
     color = color - value
@@ -402,8 +412,13 @@ with requests.Session() as s:
     constants['Local sidereal time DT'] = [adjust_lst(lst,day) for lst in constants['Local sidereal time in hours']]
     constants['Moon altitude'] = [moon_position(longitude,latitude,lst)['altitude'] for lst in constants['Local sidereal time']]
     constants['Moon azimuth'] = [moon_position(longitude,latitude,lst)['azimuth'] for lst in constants['Local sidereal time']]
+    
+    empty_matrix = np.zeros((len(plans[0]),len(constants['UT'])))
 
     for i, plan in enumerate(plans):
+        df_separation = pd.DataFrame()
+
+        plan = plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])
         fig = plt.figure(figsize=(15,8))
         gs = gridspec.GridSpec(2, 2, width_ratios=[3, 1]) 
         ax_airmass_plot = plt.subplot(gs[0,0])
@@ -422,6 +437,8 @@ with requests.Session() as s:
         ax_polar_plot.bar(np.linspace(0,360,50),1,bottom=np.cos(30*2*np.pi/360), color='pink', alpha=0.4)
         #ax_polar_plot.scatter(constants['Moon azimuth']*2*np.pi/360, np.cos(constants['Moon altitude']*2*np.pi/360), marker='D',color='black',s=2)
 
+        observation_matrix = []
+
         object_df_list = []
         object_info_list = []
         altitude_plot_list = []
@@ -433,12 +450,14 @@ with requests.Session() as s:
 
         #print(plans[0].columns)
 
-        for index, object in plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False]).iterrows():
+        for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             color = np.random.uniform(low=0.42, high=0.95, size=(3,))
             text_color = darken_color(color, 0.3)
 
             df_altitude_plot = pd.DataFrame()
+            
+            df_separation[f'{object["Name"]}'] = object_separation(object['RA in deg'],object['Dec in deg'],plan['RA in deg'],plan['Dec in deg'])
 
             df_altitude_plot['UT'] = constants['UT']
             df_altitude_plot['JST'] = constants['JST']
@@ -456,11 +475,20 @@ with requests.Session() as s:
                 object_info = f'{object["Name"]} (Priority {object["Priority"]}|{object["Filler"]})\nRA, Dec: {deg_to_hms(float(meta["RA"]))} {deg_to_dms(float(meta["Decl"]))}\nMoon: {object["Moon"]} (min)\nVmag: {np.round(float(meta["V_mag"]),1) if meta["V_mag"].iloc[0] != "" else "N/A"}\nComments: {meta["comments"].iloc[0][:30] if type(meta["comments"].iloc[0]) != float else "None"}\n                  {meta["comments"].iloc[0][30:60] + " ..." if type(meta["comments"].iloc[0]) != float and len(meta["comments"].iloc[0]) > 29 else ""}\n\n\n\n\n\n'
 
             transit_filter = (df_altitude_plot['UT'] > object['Transit begin DT']) & (df_altitude_plot['UT'] < object['Transit end DT'])
+            observation_filter = (df_altitude_plot['UT'] > object['Obs begin DT']) & (df_altitude_plot['UT'] < object['Obs end DT'])
             altitude_filter = (df_altitude_plot['Alt'] > 0) & (df_altitude_plot['Alt'] < 90)
             obs_lim_filter = (df_altitude_plot['Alt'] > 30) & (df_altitude_plot['Alt'] < 90)
 
             intransit = df_altitude_plot[transit_filter]
             ootransit = df_altitude_plot[~transit_filter][altitude_filter]
+
+            observation_value = observation_filter.astype(np.int).to_numpy()
+            observation_value += transit_filter.astype(np.int).to_numpy()
+            if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
+                observation_value = np.array([0.1 for item in observation_value])
+            observation_value = observation_value*(4-int(object['Priority']))
+            observation_value = np.array([item if bool(item) else 0 for item in observation_value])
+            observation_matrix.append(observation_value)#*(np.exp(float(object["Moon"]/180))-1))
 
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
@@ -619,4 +647,83 @@ with requests.Session() as s:
         fig.tight_layout()
         plt.subplots_adjust(hspace=0.)
         plt.show()
+
+        random_matrix = []
+        print(type(empty_matrix))
+        for column in empty_matrix.T:
+            random_int = random.randint(0,len(column)-1)
+            column[random_int] = 1
+            random_matrix.append(column)
+        
+        random_matrix = np.array(random_matrix).T
+        df_separation = df_separation.fillna(0).reset_index().drop(columns='index')
+        cost_previous = 0
+        np.set_printoptions(threshold=np.inf)
+        
+        for column in random_matrix.T:
+            print(np.sum(column))
+        print(random_matrix)
+        
+        while True:
+            random_row = random.randint(0,random_matrix.shape[0]-1)
+            random_col = random.randint(0,random_matrix.shape[1]-1)
+            jump_from = np.where(random_matrix[:,random_col] == 1)[0][0]
+            jump_to = random.randint(0,random_matrix.shape[0]-1)
+            
+            while jump_from == jump_to:
+                jump_to = random.randint(0,random_matrix.shape[0]-1)
+
+            random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+            dimensions = random_matrix.shape[0]*random_matrix.shape[1]
+            plan_value = np.sum(np.array(observation_matrix).T@random_matrix)/dimensions
+
+            print(f'{jump_from} => {jump_to}')
+            total_separation = 0
+            target_switch = 0
+            #print(f'{jump_from} => {jump_to}')
+            observation_matrix = np.array(observation_matrix)
+
+            for j in range(0,random_matrix.shape[1]):
+                index_current = np.where(random_matrix[:,j] == 1)[0][0]
+                try:
+                    index_next = np.where(random_matrix[:,j+1] == 1)[0][0]
+                except IndexError:
+                    index_next = np.where(random_matrix[:,j] == 1)[0][0]
+                separation = df_separation.iloc[index_next,index_current]
+                total_separation += separation/360
+                if separation == 0.0:
+                    pass#total_separation -= 100
+                else:
+                    target_switch += 1
+            cost_current =  total_separation**3 + target_switch - plan_value
+            #コストは小さい方がいいように考えている
+            r = random.random()
+            beta = 10
+            delta = cost_current - cost_previous
+            if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
+                print("accepted")
+            else:
+                if r < np.exp(-beta*delta):
+                    print("accepted")
+                else:
+                    print("rejected")
+                    random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+                    #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
+            cost_previous = cost_current
+            np.set_printoptions(threshold=np.inf)
+            #print(random_matrix)
+            merged_matrix = []
+            for value, observe in zip(observation_matrix, random_matrix):
+                observation_tuple = [f'{float(x):.2f}:{int(y)}' for x,y in zip(value,observe) if float(x) != 0.0 and int(y) != 0]
+                merged_matrix.append(observation_tuple)
+            print(random_matrix.astype(int))
+            print(merged_matrix)
+            print(f'r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
+            print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target swith: {target_switch}')
+            if target_switch < 4:
+                sys.exit(1)
+            #pd.set_option('display.max_columns', None)
+            #pd.set_option('display.expand_frame_repr', False)
+            #print(df_separation)
+        #print(np.array(observation_matrix).shape)
         # note: altitude = 0 になる時間を解ける？
