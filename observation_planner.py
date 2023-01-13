@@ -658,6 +658,8 @@ with requests.Session() as s:
         random_matrix = np.array(random_matrix).T
         df_separation = df_separation.fillna(0).reset_index().drop(columns='index')
         np.set_printoptions(threshold=np.inf)
+
+        init_matrix = np.array(random_matrix)
         
         '''
         for column in random_matrix.T:
@@ -668,7 +670,7 @@ with requests.Session() as s:
         count = 0
         accepted = 0
 
-        while True:
+        while count <= 30000:
             random_col = random.randint(0,random_matrix.shape[1]-1)
             jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
             jump_to    = random.randint(0,random_matrix.shape[0]-1)
@@ -678,7 +680,7 @@ with requests.Session() as s:
 
             random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
             dimensions = random_matrix.shape[0]*random_matrix.shape[1]
-            plan_value = np.sum(observation_matrix*random_matrix)#/dimensions
+            plan_value = np.sum(observation_matrix*random_matrix)/dimensions
 
             print(f'{random_col} {jump_from} => {random_col} {jump_to}')
             total_separation = 0
@@ -712,7 +714,7 @@ with requests.Session() as s:
                 else:
                     target_switch += 1
             #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
-            cost_current = target_switch**5 * total_separation**7 * repeated_observation**7 / (plan_value**(continuous_observation/random_matrix.shape[1]))
+            cost_current = (target_switch**3 * total_separation * repeated_observation) / (plan_value) / (continuous_observation/random_matrix.shape[1])**3
             #コストは小さい方がいいように考えている
             r = random.random()
             beta = 1
@@ -741,13 +743,24 @@ with requests.Session() as s:
             for value, observe in zip(observation_matrix, random_matrix):
                 observation_tuple = [f'{float(x):.2f}:{int(y)}' for x,y in zip(value,observe) if float(x) != 0.0 and int(y) != 0]
                 merged_matrix.append(observation_tuple)
+            print(init_matrix.astype(int))
+            print(f"  --------------------------------------------- ↑initial↑ --------------------------------- ↓after {count} steps↓ ---------------------------------------------")
             print(random_matrix.astype(int))
-            print(merged_matrix)
+            #print(merged_matrix)
             count += 1
             print(f'acceptance: {(accepted/count)*100:.1f}% count: {count} r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
             print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
             if target_switch < 4:
                 sys.exit(1)
+
+            #現在のコスト関数
+            # 罰の対象（最小化）
+                # ターゲット変更
+                # 一度観測した天体に戻ってくる11
+                # 大きな移動←これでは例えば北天から南天に行けなくなってしまう？
+            #ご褒美の対象（最大化）
+                # 観測価値の高い時間での観測
+                # 同じ天体の連続した観測
             #pd.set_option('display.max_columns', None)
             #pd.set_option('display.expand_frame_repr', False)
             #print(np.array(observation_matrix))
