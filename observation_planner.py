@@ -748,9 +748,9 @@ with requests.Session() as s:
             print(random_matrix.astype(int))
             #print(merged_matrix)
             count += 1
-            print(f'acceptance: {(accepted/count)*100:.1f}% count: {count} r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
+            print(f'acceptance: {(accepted/count)*100:.1f}% count: {count-1} r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
             print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
-            if target_switch < 4:
+            if target_switch < 10:
                 sys.exit(1)
 
             #現在のコスト関数
