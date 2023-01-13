@@ -487,8 +487,8 @@ with requests.Session() as s:
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
                 observation_value = np.array([0.1 for item in observation_value])
             observation_value = observation_value*(4-int(object['Priority']))
-            observation_value = np.array([item if bool(item) else 0 for item in observation_value])
-            observation_matrix.append(observation_value)#*(np.exp(float(object["Moon"]/180))-1))
+            observation_value = np.array([item if bool(item) else 0 for item in observation_value]) * np.log(float(object["Moon"])-30)/np.e
+            observation_matrix.append(observation_value)
 
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
@@ -664,7 +664,7 @@ with requests.Session() as s:
             print(np.sum(column))
         '''
 
-        cost_previous = 999
+        cost_previous = 99999999999999999999999999
         count = 0
         accepted = 0
 
@@ -683,7 +683,20 @@ with requests.Session() as s:
             print(f'{random_col} {jump_from} => {random_col} {jump_to}')
             total_separation = 0
             target_switch = 0
+            continuous_observation = 0
+            repeated_observation = 0
             #print(f'{jump_from} => {jump_to}')
+
+            for rows in random_matrix:
+                if len(set(rows)) == 1 and list(set(rows))[0] == 0:
+                    pass
+                else:
+                    index_ones      = np.where(rows == 1)
+                    index_first_one = index_ones[0][0]
+                    index_last_one  = index_ones[0][-1]
+                    comes_back = len(set(rows[index_first_one:index_last_one])) == 2
+                    if comes_back:
+                        repeated_observation += 1
 
             for j in range(0,random_matrix.shape[1]):
                 index_current = np.where(random_matrix[:,j] == 1)[0][0]
@@ -694,17 +707,17 @@ with requests.Session() as s:
                 separation = df_separation.iloc[index_next,index_current]
                 #print(separation)
                 total_separation += separation/360
-                if separation == 0.0:
-                    pass#total_separation -= 100
+                if index_next == index_current:
+                    continuous_observation += 1
                 else:
                     target_switch += 1
             #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
-            cost_current = target_switch * total_separation**3.5 / plan_value
+            cost_current = target_switch**5 * total_separation**7 * repeated_observation**7 / (plan_value**(continuous_observation/random_matrix.shape[1]))
             #コストは小さい方がいいように考えている
             r = random.random()
-            beta = 10
+            beta = 1
             delta = cost_current - cost_previous
-            
+            '''
             if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
                 accepted += 1
                 print("accepted")
@@ -721,7 +734,7 @@ with requests.Session() as s:
                 print("rejected")
                 random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
                 #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
-            '''
+            
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
             merged_matrix = []
@@ -731,8 +744,8 @@ with requests.Session() as s:
             print(random_matrix.astype(int))
             print(merged_matrix)
             count += 1
-            print(f'acceptance: {(accepted/count)*100:.1f}% r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
-            print(f'count: {count} total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch}')
+            print(f'acceptance: {(accepted/count)*100:.1f}% count: {count} r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
+            print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
             if target_switch < 4:
                 sys.exit(1)
             #pd.set_option('display.max_columns', None)
