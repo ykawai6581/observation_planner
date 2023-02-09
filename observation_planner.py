@@ -669,6 +669,7 @@ with requests.Session() as s:
         cost_previous = 99999999999999999999999999
         count = 0
         accepted = 0
+        acceptance_rate = []
 
         while count <= 30000:
             random_col = random.randint(0,random_matrix.shape[1]-1)
@@ -750,8 +751,11 @@ with requests.Session() as s:
             count += 1
             print(f'acceptance: {(accepted/count)*100:.1f}% count: {count-1} r: {r:.2f} delta: {delta:.2f} dimensions: {dimensions}')
             print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
-            if target_switch < 10:
-                sys.exit(1)
+            acceptance_rate.append((accepted/count)*100)
+            #if target_switch < 10:
+            #    sys.exit(1)
+        plt.plot(list(range(0,30001)),acceptance_rate)
+        plt.show()
 
             #現在のコスト関数
             # 罰の対象（最小化）
