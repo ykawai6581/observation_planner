@@ -29,7 +29,7 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 warnings.filterwarnings("ignore")
-warnings.filterwarnings('ignore', message="posx and posy should be finite values")
+#warnings.filterwarnings('ignore', message="posx and posy should be finite values")
 
 parser = argparse.ArgumentParser(description=\
 '## obslog formatter ver. 2022 Nov. 19 ##')
@@ -265,7 +265,21 @@ with requests.Session() as s:
         soup = BeautifulSoup(registration.content, 'html.parser')
 
         # tableの取得
+        special_targets = []
         table = soup.find('table')
+        lists = soup.find_all("ul")
+        special_observations = lists[-1].find_all("li")
+        for item in special_observations:
+            extracted_date = item.text.split(" ")[:5]
+            special_date = [extracted_date[0]] + extracted_date[3:]
+            special_date = datetime.datetime.strptime(" ".join(special_date),"%Y %d %B")
+            if day == special_date:
+                special_targets.append(item.text)
+        
+        if len(special_targets) != 0:
+            for item in special_targets:
+                print(f'\n{item}')
+            input(f'\nWARNING: The above special observations are detected on {day.strftime("%B %d, %Y")}. Press y to continue: ')
 
         # theadの解析
         r = []  # 保存先の行
@@ -334,12 +348,12 @@ with requests.Session() as s:
     df['Ephem error TD'] = [datetime.timedelta(hours=int(item[2:4]),minutes=int(item[5:7])) for item in df['Acc period error']]
 
     df['Transit begin DT'] = [time_to_datetime(str(item)) for item in df["Transit begin"]]
-    df['Obs begin DT'] = [begin - error - datetime.timedelta(minutes=45) for begin, error in zip(df['Transit begin DT'], df['Ephem error TD'])]
+    df['Obs begin DT'] = [begin - error - datetime.timedelta(minutes=75) for begin, error in zip(df['Transit begin DT'], df['Ephem error TD'])]
 
     df['Transit middle DT'] = [time_to_datetime(str(item)) for item in df["Transit middle"]]
     
     df['Transit end DT'] = [time_to_datetime(str(item)) for item in df["Transit end"]]
-    df['Obs end DT'] = [end + error + datetime.timedelta(minutes=30) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
+    df['Obs end DT'] = [end + error + datetime.timedelta(minutes=60) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
 
     df['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in df['Obs begin DT']]
 
@@ -495,14 +509,15 @@ with requests.Session() as s:
             ax_airmass_plot.scatter(mdates.date2num(ootransit['JST']), ootransit['Alt'], color=color,s=2)
             altitude_marker, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), np.full(len(df_altitude_plot),0) , color="pink",alpha=0.0,)#, left=df_altitude_plot['JST'])
 
-            transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
-            obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
-            transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
             obs_max_duration = mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[0]) - mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1])
 
-            ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
-            ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color, alpha=0.5, height=1,)#, left=df_altitude_plot['JST']) 
             if type(object['Obs begin DT']) != pd._libs.tslibs.nattype.NaTType:
+                transit_duration = mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+                obs_duration = mdates.date2num(object['Obs end DT']) - mdates.date2num(object['Obs begin DT'])
+                transit_duration_werror = mdates.date2num(object['Transit end DT'] + object['Ephem error TD']) - mdates.date2num(object['Transit begin DT'] - object['Ephem error TD'])#mdates.date2num(object['Transit end DT']) - mdates.date2num(object['Transit begin DT'])
+
+                ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Obs begin DT']), width=obs_duration, color=color,alpha=0.4,height=1)#, left=df_altitude_plot['JST'])
+                ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT'] - object['Ephem error TD']), width=transit_duration_werror, color=color, alpha=0.5, height=1,)#, left=df_altitude_plot['JST']) 
                 observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(object['Transit begin DT']), width=transit_duration, color=color,height=1)#, left=df_altitude_plot['JST'])
                 ax_gantt_plot.text(mdates.date2num(object['Transit begin DT']) + transit_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}]', va='center' ,ha='center', fontsize=10, color=text_color,weight='bold')
             else:
@@ -581,7 +596,7 @@ with requests.Session() as s:
         live_time_jst = ax_airmass_plot.axvline(0)
         live_time_ut = ax_gantt_plot.axvline(0)
         live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
-
+        
         def animate_planets(i):
             now = datetime.datetime.utcnow()
             past_midnight = day + datetime.timedelta(days=1)
@@ -613,10 +628,11 @@ with requests.Session() as s:
                         trajectory = df[0][current_time+1:][df[0]['Alt'] > 0]*2*np.pi/360
                         path = df[0][:current_time][df[0]['Alt'] > 0]*2*np.pi/360
                         polar_plot_trajectory.set_data(trajectory['Az'] + (np.pi/2),np.cos(trajectory['Alt']))#, color=live_color,s=2)
-                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                    
-            
+                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                 
         animation = FuncAnimation(fig, animate_planets, interval = 1000,)
-
+        
+        #ax_airmass_plot.plot(np.linspace(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]),100),np.full(100,30),color="red", linestyle="dashed",alpha=0.2)
+        ax_airmass_plot.fill_between(np.linspace(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]),100), 0, 30,color='pink', alpha=0.7)
         ax_airmass_plot.set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
