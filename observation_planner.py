@@ -255,7 +255,21 @@ with requests.Session() as s:
         soup = BeautifulSoup(registration.content, 'html.parser')
 
         # tableの取得
+        special_targets = []
         table = soup.find('table')
+        lists = soup.find_all("ul")
+        special_observations = lists[-1].find_all("li")
+        for item in special_observations:
+            extracted_date = item.text.split(" ")[:5]
+            special_date = [extracted_date[0]] + extracted_date[3:]
+            special_date = datetime.datetime.strptime(" ".join(special_date),"%Y %d %B")
+            if day == special_date:
+                special_targets.append(item.text)
+        
+        if len(special_targets) != 0:
+            for item in special_targets:
+                print(f'\n{item}')
+            input(f'\nWARNING: The above special observations are detected on {day.strftime("%B %d, %Y")}. Press y to continue: ')
 
         # theadの解析
         r = []  # 保存先の行
