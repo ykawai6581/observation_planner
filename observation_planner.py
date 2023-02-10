@@ -676,7 +676,7 @@ with requests.Session() as s:
         np.set_printoptions(threshold=np.inf)
 
         init_matrix = np.array(random_matrix)
-        
+        sum_matrix = np.array(random_matrix)*0        
         '''
         for column in random_matrix.T:
             print(np.sum(column))
@@ -686,6 +686,7 @@ with requests.Session() as s:
         count = 0
         accepted = 0
         acceptance_rate = []
+        dimensions = random_matrix.shape[0]*random_matrix.shape[1]
 
         while count <= 30000:
             random_col = random.randint(0,random_matrix.shape[1]-1)
@@ -696,7 +697,6 @@ with requests.Session() as s:
                 jump_to = random.randint(0,random_matrix.shape[0]-1)
 
             random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-            dimensions = random_matrix.shape[0]*random_matrix.shape[1]
             plan_value = np.sum(observation_matrix*random_matrix)/dimensions
 
             print(f'{random_col} {jump_from} => {random_col} {jump_to}')
@@ -748,6 +748,7 @@ with requests.Session() as s:
             if r < np.exp(-beta*delta):
                 accepted += 1
                 cost_previous = cost_current
+                sum_matrix+=random_matrix
                 print("accepted")
             else:
                 print("rejected")
@@ -770,7 +771,25 @@ with requests.Session() as s:
             acceptance_rate.append((accepted/count)*100)
             #if target_switch < 10:
             #    sys.exit(1)
-        plt.plot(list(range(0,30001)),acceptance_rate)
+        fig = plt.figure(figsize=plt.figaspect(0.5))
+        ax = fig.add_subplot(projection='3d')
+
+        print(np.array([[int(item) if item < 10 else 9 for item in item2] for item2 in observation_matrix]))
+        yticks = constants['UT']
+        color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(0,14))]
+
+        for s,c  in zip(sum_matrix.T, constants['UT']):
+            # Generate the random data for the y=k 'layer'.
+            #print(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+            # Plot the bar graph given by xs and ys on the plane y=k with 80% opacity.
+            ax.bar(list(range(0,14)), s, zs=mdates.date2num(c), zdir='y', color=color, alpha=0.8)
+
+        ax.yaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xticklabels(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+        ax.set_xlabel('Planet ID')
+        ax.set_ylabel('Time')
+        ax.set_zlabel('Count')
+        #plt.plot(list(range(0,30001)),acceptance_rate)
         plt.show()
 
             #現在のコスト関数
