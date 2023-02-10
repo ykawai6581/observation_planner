@@ -338,12 +338,12 @@ with requests.Session() as s:
     df['Ephem error TD'] = [datetime.timedelta(hours=int(item[2:4]),minutes=int(item[5:7])) for item in df['Acc period error']]
 
     df['Transit begin DT'] = [time_to_datetime(str(item)) for item in df["Transit begin"]]
-    df['Obs begin DT'] = [begin - error - datetime.timedelta(minutes=45) for begin, error in zip(df['Transit begin DT'], df['Ephem error TD'])]
+    df['Obs begin DT'] = [begin - error - datetime.timedelta(minutes=75) for begin, error in zip(df['Transit begin DT'], df['Ephem error TD'])]
 
     df['Transit middle DT'] = [time_to_datetime(str(item)) for item in df["Transit middle"]]
     
     df['Transit end DT'] = [time_to_datetime(str(item)) for item in df["Transit end"]]
-    df['Obs end DT'] = [end + error + datetime.timedelta(minutes=30) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
+    df['Obs end DT'] = [end + error + datetime.timedelta(minutes=60) for end, error in zip(df['Transit end DT'], df['Ephem error TD'])]
 
     df['day_since_j2000'] = [timedelta_in_days(item - j2000) for item in df['Obs begin DT']]
 
@@ -568,7 +568,7 @@ with requests.Session() as s:
         live_time_jst = ax_airmass_plot.axvline(0)
         live_time_ut = ax_gantt_plot.axvline(0)
         live_annotations = [ax_polar_plot.annotate("",[0,0]) for item in plan]
-
+        
         def animate_planets(i):
             now = datetime.datetime.utcnow()
             past_midnight = day + datetime.timedelta(days=1)
@@ -600,8 +600,7 @@ with requests.Session() as s:
                         trajectory = df[0][current_time+1:][df[0]['Alt'] > 0]*2*np.pi/360
                         path = df[0][:current_time][df[0]['Alt'] > 0]*2*np.pi/360
                         polar_plot_trajectory.set_data(trajectory['Az'] + (np.pi/2),np.cos(trajectory['Alt']))#, color=live_color,s=2)
-                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                    
-            
+                        polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                 
         animation = FuncAnimation(fig, animate_planets, interval = 1000,)
         
         #ax_airmass_plot.plot(np.linspace(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]),100),np.full(100,30),color="red", linestyle="dashed",alpha=0.2)
