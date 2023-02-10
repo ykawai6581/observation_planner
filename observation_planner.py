@@ -28,7 +28,7 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 warnings.filterwarnings("ignore")
-warnings.filterwarnings('ignore', message="posx and posy should be finite values")
+#warnings.filterwarnings('ignore', message="posx and posy should be finite values")
 
 parser = argparse.ArgumentParser(description=\
 '## obslog formatter ver. 2022 Nov. 19 ##')
@@ -603,7 +603,9 @@ with requests.Session() as s:
                         polar_plot.set_data(path['Az'] + (np.pi/2),np.cos(path['Alt']))                    
             
         animation = FuncAnimation(fig, animate_planets, interval = 1000,)
-
+        
+        #ax_airmass_plot.plot(np.linspace(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]),100),np.full(100,30),color="red", linestyle="dashed",alpha=0.2)
+        ax_airmass_plot.fill_between(np.linspace(mdates.date2num(constants['JST'].iloc[0]),mdates.date2num(constants['JST'].iloc[-1]),100), 0, 30,color='pink', alpha=0.7)
         ax_airmass_plot.set_title(f'Observation Plan {i+1}/{len(plans)} on {twilights["date"]}')
         ax_airmass_plot.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax_airmass_plot.xaxis.set_major_locator(mdates.HourLocator(interval=1))
