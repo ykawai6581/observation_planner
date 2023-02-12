@@ -432,7 +432,7 @@ with requests.Session() as s:
     for i, plan in enumerate(plans):
         df_separation = pd.DataFrame()
 
-        plan = plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])
+        plan = plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])
         fig = plt.figure(figsize=(15,8))
         gs = gridspec.GridSpec(2, 2, width_ratios=[3, 1]) 
         ax_airmass_plot = plt.subplot(gs[0,0])
@@ -464,9 +464,12 @@ with requests.Session() as s:
 
         #print(plans[0].columns)
 
+        colors = []
+
         for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
             color = np.random.uniform(low=0.42, high=0.95, size=(3,))
+            colors.append(color)
             text_color = darken_color(color, 0.3)
 
             df_altitude_plot = pd.DataFrame()
@@ -664,16 +667,22 @@ with requests.Session() as s:
         plt.subplots_adjust(hspace=0.)
         plt.show()
 
-        random_matrix = []
-        print(type(empty_matrix))
-        for column in empty_matrix.T:
-            random_int = random.randint(0,len(column)-1)
-            column[random_int] = 1
-            random_matrix.append(column)
+        num_chains = 10
+        np.set_printoptions(threshold=np.inf,linewidth=np.inf)
+
+        #チェーン分の初期値を用意
+        random_matrices = []
+        for i in range(num_chains):
+            random_matrix = []
+            empty_matrix = np.zeros((len(plans[0]),len(constants['UT'])))
+            for column in empty_matrix.T:
+                random_int = random.randint(0,len(column)-1)
+                column[random_int] = 1
+                random_matrix.append(column)
+            random_matrices.append(np.array(random_matrix).T)
+        print(np.array(random_matrices).astype(int))
         #縦軸に1が一つずつ入っている行列を生成
-        random_matrix = np.array(random_matrix).T
         df_separation = df_separation.fillna(0).reset_index().drop(columns='index')
-        np.set_printoptions(threshold=np.inf)
 
         init_matrix = np.array(random_matrix)
         sum_matrix = np.array(random_matrix)*0        
@@ -682,79 +691,115 @@ with requests.Session() as s:
             print(np.sum(column))
         '''
 
-        cost_previous = 99999999999999999999999999
+        #cost_previous = 99999999999999999999999999
         count = 0
+        burn = 10000
         accepted = 0
         acceptance_rate = []
-        dimensions = random_matrix.shape[0]*random_matrix.shape[1]
+        dimensions = len(constants['UT'])*len(plan['Name'])
+        chains = [random_matrices]
+        cost_previous_list = np.full(num_chains,9999999999999999999999)
+        temperatures = np.linspace(0.01,1,num_chains)
 
         while count <= 10000:
-            random_col = random.randint(0,random_matrix.shape[1]-1)
-            jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
-            jump_to    = random.randint(0,random_matrix.shape[0]-1)
-            
-            while jump_from == jump_to:
-                jump_to = random.randint(0,random_matrix.shape[0]-1)
+            #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
+            #これらのチェーンの何を保存すればよい？→random_matrixとすると72*100000*10*14=10億個の数字を保存しなければいけない?!
+            #一個前のmatrixだけ保存しておくという方法はありそうだけど、どうだろう
+            #各チェーン分の1イタレーションのmatrixが下に入る
+            matrices_all_chains = []
+            #毎回一個前のチェーンからmatrixをとってくる
+            #このfor loopは各chainについて計算している
+            for index, (random_matrix, cost_previous, temperature) in enumerate(zip(chains[-1],cost_previous_list,temperatures)):
+                random_matrix = np.array(random_matrix)
+                random_col = random.randint(0,random_matrix.shape[1]-1)
+                jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
+                jump_to    = random.randint(0,random_matrix.shape[0]-1)
+                
+                while jump_from == jump_to:
+                    jump_to = random.randint(0,random_matrix.shape[0]-1)
 
-            random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-            plan_value = np.sum(observation_matrix*random_matrix)/dimensions
-
-            print(f'{random_col} {jump_from} => {random_col} {jump_to}')
-            total_separation = 0
-            target_switch = 0
-            continuous_observation = 0
-            repeated_observation = 0
-            #print(f'{jump_from} => {jump_to}')
-
-            for rows in random_matrix:
-                if len(set(rows)) == 1 and list(set(rows))[0] == 0:
-                    pass
-                else:
-                    index_ones      = np.where(rows == 1)
-                    index_first_one = index_ones[0][0]
-                    index_last_one  = index_ones[0][-1]
-                    comes_back = len(set(rows[index_first_one:index_last_one])) == 2
-                    if comes_back:
-                        repeated_observation += 1
-
-            for j in range(0,random_matrix.shape[1]):
-                index_current = np.where(random_matrix[:,j] == 1)[0][0]
-                try:
-                    index_next = np.where(random_matrix[:,j+1] == 1)[0][0]
-                except IndexError:
-                    index_next = np.where(random_matrix[:,j] == 1)[0][0]
-                separation = df_separation.iloc[index_next,index_current]
-                #print(separation)
-                total_separation += separation/360
-                if index_next == index_current:
-                    continuous_observation += 1
-                else:
-                    target_switch += 1
-            #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
-            cost_current = (target_switch**3 * total_separation * repeated_observation) / (plan_value) / (continuous_observation/random_matrix.shape[1])**3
-            #コストは小さい方がいいように考えている
-            r = random.random()
-            beta = 1
-            delta = cost_current - cost_previous
-            '''
-            if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
-                accepted += 1
-                print("accepted")
-                cost_previous = cost_current
-            else:
-                print("rejected")
                 random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-            '''
-            if r < np.exp(-beta*delta):
-                accepted += 1
-                cost_previous = cost_current
-                sum_matrix+=random_matrix
-                print("accepted")
-            else:
-                print("rejected")
-                random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-                #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
-            
+                plan_value = np.sum(observation_matrix*random_matrix)/dimensions
+                
+                print(f'{random_col} {jump_from} => {random_col} {jump_to}')
+                print(f'plan value: {plan_value}')
+                total_separation = 0
+                target_switch = 0
+                continuous_observation = 0
+                repeated_observation = 0
+                #print(f'{jump_from} => {jump_to}')
+
+                for rows in random_matrix:
+                    if len(set(rows)) == 1 and list(set(rows))[0] == 0:
+                        pass
+                    else:
+                        index_ones      = np.where(rows == 1)
+                        index_first_one = index_ones[0][0]
+                        index_last_one  = index_ones[0][-1]
+                        comes_back = len(set(rows[index_first_one:index_last_one])) == 2
+                        if comes_back:
+                            repeated_observation += 1
+
+                for j in range(0,random_matrix.shape[1]):
+                    index_current = np.where(random_matrix[:,j] == 1)[0][0]
+                    try:
+                        index_next = np.where(random_matrix[:,j+1] == 1)[0][0]
+                    except IndexError:
+                        index_next = np.where(random_matrix[:,j] == 1)[0][0]
+                    separation = df_separation.iloc[index_next,index_current]
+                    #print(separation)
+                    total_separation += separation/360
+                    if index_next == index_current:
+                        continuous_observation += 1
+                    else:
+                        target_switch += 1
+                #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
+                #total_separation
+                cost_current = (target_switch**3 * repeated_observation) / (plan_value) / (continuous_observation/random_matrix.shape[1])**3
+                #コストは小さい方がいいように考えている
+                r = random.random()
+                beta = temperature
+                delta = cost_current - cost_previous
+                print(f'delta: {delta} temperature: {temperature}')
+                print(f'cost current: {cost_current} cost previous: {cost_previous} expected acceptance: {np.exp(-beta*delta)}')
+                '''
+                if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
+                    accepted += 1
+                    print("accepted")
+                    cost_previous = cost_current
+                else:
+                    print("rejected")
+                    random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+                '''
+                if r < np.exp(-beta*delta):
+                    accepted += 1
+                    cost_previous_list[index] = cost_current
+                    if count > burn:
+                        sum_matrix+=random_matrix
+                    print(f"accepted: {count}")
+                else:
+                    print(f"rejected {count}")
+                    random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+                    #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
+                #ここまでで、1イテレーションでacceptするにせよしないにせよそのチェーンのrandom matrixが決まっている
+                #それをappendしたい
+                matrices_all_chains.append(np.array(random_matrix))
+            chains.append(np.array(matrices_all_chains))
+            #ここから下でチェーンの交換を行う
+            if count % 10 == 0:
+                swap_index = random.sample(range(num_chains),2)
+                i1, i2 = swap_index
+                temp_ratio = temperatures[i1]/temperatures[i2]
+                chain_delta = cost_previous_list[i1] - cost_previous_list[i2]
+                r = random.random()
+                if r < np.exp(-temp_ratio*chain_delta):
+                    chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
+            count += 1
+            print(np.array(chains[-1][0]).astype(int))
+            print(np.array(chains[-1][-1]).astype(int))
+        print(np.array(chains[-1][0]).astype(int))
+        print(np.array(chains[-1][-1]).astype(int))
+        """
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
             merged_matrix = []
@@ -771,35 +816,37 @@ with requests.Session() as s:
             acceptance_rate.append((accepted/count)*100)
             #if target_switch < 10:
             #    sys.exit(1)
+            """
+        """
         fig = plt.figure(figsize=plt.figaspect(0.5))
         ax = fig.add_subplot(projection='3d')
 
         print(np.array([[int(item) if item < 10 else 9 for item in item2] for item2 in observation_matrix]))
         
         yticks = constants['UT']
-        color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(0,14))]
+        #color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(0,14))]
 
         for s,c  in zip(sum_matrix.T, constants['UT']):
             # Generate the random data for the y=k 'layer'.
-            #print(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+            #print(plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])['Name'])
             # Plot the bar graph given by xs and ys on the plane y=k with 80% opacity.
-            ax.bar(list(range(0,14)), s, zs=mdates.date2num(c), zdir='y', color=color, alpha=0.8)
+            ax.bar(list(range(0,14)), s, zs=mdates.date2num(c), zdir='y', color=colors, alpha=0.8)
         '''
         color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(len(constants['UT'])))]
-        for s,c in zip(sum_matrix, plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name']):
+        for s,c in zip(sum_matrix, plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])['Name']):
             # Generate the random data for the y=k 'layer'.
-            #print(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+            #print(plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])['Name'])
             # Plot the bar graph given by xs and ys on the plane y=k with 80% opacity.
             ax.bar(s, c, zs=list(range(len(constants['UT']))), zdir='y', color=color, alpha=0.8)
         '''
         ax.yaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.set_xticklabels(plan.sort_values(['Filler','Name','Priority'],ascending=[True,True,True])['Name'])
+        ax.set_xticklabels(plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])['Name'])
         ax.set_xlabel('Planet ID')
         ax.set_ylabel('Time')
         ax.set_zlabel('Count')
         #plt.plot(list(range(0,30001)),acceptance_rate)
         plt.show()
-
+        """
             #現在のコスト関数
             # 罰の対象（最小化）
                 # ターゲット変更
