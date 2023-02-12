@@ -688,7 +688,7 @@ with requests.Session() as s:
         acceptance_rate = []
         dimensions = random_matrix.shape[0]*random_matrix.shape[1]
 
-        while count <= 30000:
+        while count <= 10000:
             random_col = random.randint(0,random_matrix.shape[1]-1)
             jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
             jump_to    = random.randint(0,random_matrix.shape[0]-1)
@@ -775,6 +775,7 @@ with requests.Session() as s:
         ax = fig.add_subplot(projection='3d')
 
         print(np.array([[int(item) if item < 10 else 9 for item in item2] for item2 in observation_matrix]))
+        
         yticks = constants['UT']
         color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(0,14))]
 
@@ -783,9 +784,16 @@ with requests.Session() as s:
             #print(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
             # Plot the bar graph given by xs and ys on the plane y=k with 80% opacity.
             ax.bar(list(range(0,14)), s, zs=mdates.date2num(c), zdir='y', color=color, alpha=0.8)
-
+        '''
+        color = [np.random.uniform(low=0.42, high=0.95, size=(3,)) for item in list(range(len(constants['UT'])))]
+        for s,c in zip(sum_matrix, plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name']):
+            # Generate the random data for the y=k 'layer'.
+            #print(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+            # Plot the bar graph given by xs and ys on the plane y=k with 80% opacity.
+            ax.bar(s, c, zs=list(range(len(constants['UT']))), zdir='y', color=color, alpha=0.8)
+        '''
         ax.yaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.set_xticklabels(plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False])['Name'])
+        ax.set_xticklabels(plan.sort_values(['Filler','Name','Priority'],ascending=[True,True,True])['Name'])
         ax.set_xlabel('Planet ID')
         ax.set_ylabel('Time')
         ax.set_zlabel('Count')
