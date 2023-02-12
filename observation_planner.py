@@ -694,12 +694,13 @@ with requests.Session() as s:
         #cost_previous = 99999999999999999999999999
         count = 0
         burn = 10000
-        accepted = 0
+        accepted = np.zeros(num_chains)
         acceptance_rate = []
         dimensions = len(constants['UT'])*len(plan['Name'])
         chains = [random_matrices]
         cost_previous_list = np.full(num_chains,9999999999999999999999)
         temperatures = np.linspace(0.01,1,num_chains)
+        #at least the last chain should work as per normal
 
         while count <= 10000:
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
@@ -709,17 +710,17 @@ with requests.Session() as s:
             matrices_all_chains = []
             #毎回一個前のチェーンからmatrixをとってくる
             #このfor loopは各chainについて計算している
-            for index, (random_matrix, cost_previous, temperature) in enumerate(zip(chains[-1],cost_previous_list,temperatures)):
-                random_matrix = np.array(random_matrix)
-                random_col = random.randint(0,random_matrix.shape[1]-1)
-                jump_from  = np.where(random_matrix[:,random_col] == 1)[0][0]
-                jump_to    = random.randint(0,random_matrix.shape[0]-1)
+            for index, (recent_matrix, cost_previous, temperature) in enumerate(zip(chains[-1],cost_previous_list,temperatures)):
+                recent_matrix = np.array(recent_matrix)
+                random_col = random.randint(0,recent_matrix.shape[1]-1)
+                jump_from  = np.where(recent_matrix[:,random_col] == 1)[0][0]
+                jump_to    = random.randint(0,recent_matrix.shape[0]-1)
                 
                 while jump_from == jump_to:
-                    jump_to = random.randint(0,random_matrix.shape[0]-1)
+                    jump_to = random.randint(0,recent_matrix.shape[0]-1)
 
-                random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
-                plan_value = np.sum(observation_matrix*random_matrix)/dimensions
+                recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
+                plan_value = np.sum(observation_matrix*recent_matrix)/dimensions
                 
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
                 print(f'plan value: {plan_value}')
@@ -729,7 +730,7 @@ with requests.Session() as s:
                 repeated_observation = 0
                 #print(f'{jump_from} => {jump_to}')
 
-                for rows in random_matrix:
+                for rows in recent_matrix:
                     if len(set(rows)) == 1 and list(set(rows))[0] == 0:
                         pass
                     else:
@@ -740,12 +741,12 @@ with requests.Session() as s:
                         if comes_back:
                             repeated_observation += 1
 
-                for j in range(0,random_matrix.shape[1]):
-                    index_current = np.where(random_matrix[:,j] == 1)[0][0]
+                for j in range(0,recent_matrix.shape[1]):
+                    index_current = np.where(recent_matrix[:,j] == 1)[0][0]
                     try:
-                        index_next = np.where(random_matrix[:,j+1] == 1)[0][0]
+                        index_next = np.where(recent_matrix[:,j+1] == 1)[0][0]
                     except IndexError:
-                        index_next = np.where(random_matrix[:,j] == 1)[0][0]
+                        index_next = np.where(recent_matrix[:,j] == 1)[0][0]
                     separation = df_separation.iloc[index_next,index_current]
                     #print(separation)
                     total_separation += separation/360
@@ -755,7 +756,7 @@ with requests.Session() as s:
                         target_switch += 1
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
-                cost_current = (target_switch**3 * repeated_observation) / (plan_value) / (continuous_observation/random_matrix.shape[1])**3
+                cost_current = (target_switch**3 * repeated_observation) / (plan_value) / (continuous_observation/recent_matrix.shape[1])**3
                 #コストは小さい方がいいように考えている
                 r = random.random()
                 beta = temperature
@@ -772,18 +773,18 @@ with requests.Session() as s:
                     random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
                 '''
                 if r < np.exp(-beta*delta):
-                    accepted += 1
+                    accepted[index] += 1
                     cost_previous_list[index] = cost_current
                     if count > burn:
-                        sum_matrix+=random_matrix
-                    print(f"accepted: {count}")
+                        sum_matrix+=recent_matrix
+                    print(f"accepted: {count} len: {len(chains)} acceptance: {accepted[index]/count}")
                 else:
-                    print(f"rejected {count}")
-                    random_matrix[:,random_col][jump_from], random_matrix[:,random_col][jump_to] = random_matrix[:,random_col][jump_to], random_matrix[:,random_col][jump_from]
+                    print(f"rejected {count} len: {len(chains)} acceptance: {accepted[index]/count}")
+                    recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
                     #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
                 #ここまでで、1イテレーションでacceptするにせよしないにせよそのチェーンのrandom matrixが決まっている
                 #それをappendしたい
-                matrices_all_chains.append(np.array(random_matrix))
+                matrices_all_chains.append(np.array(recent_matrix))
             chains.append(np.array(matrices_all_chains))
             #ここから下でチェーンの交換を行う
             if count % 10 == 0:
