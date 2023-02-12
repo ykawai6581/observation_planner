@@ -710,8 +710,8 @@ with requests.Session() as s:
             matrices_all_chains = []
             #毎回一個前のチェーンからmatrixをとってくる
             #このfor loopは各chainについて計算している
-            for index, (recent_matrix, cost_previous, temperature) in enumerate(zip(chains[-1],cost_previous_list,temperatures)):
-                recent_matrix = np.array(recent_matrix)
+            for index in range(num_chains):
+                recent_matrix = np.array(chains[-1][index])
                 random_col = random.randint(0,recent_matrix.shape[1]-1)
                 jump_from  = np.where(recent_matrix[:,random_col] == 1)[0][0]
                 jump_to    = random.randint(0,recent_matrix.shape[0]-1)
@@ -721,9 +721,8 @@ with requests.Session() as s:
 
                 recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
                 plan_value = np.sum(observation_matrix*recent_matrix)/dimensions
-                
+
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
-                print(f'plan value: {plan_value}')
                 total_separation = 0
                 target_switch = 0
                 continuous_observation = 0
@@ -756,13 +755,14 @@ with requests.Session() as s:
                         target_switch += 1
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
-                cost_current = (target_switch**3 * repeated_observation) / (plan_value) / (continuous_observation/recent_matrix.shape[1])**3
+                cost_current = (target_switch**3 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
                 #コストは小さい方がいいように考えている
                 r = random.random()
-                beta = temperature
-                delta = cost_current - cost_previous
-                print(f'delta: {delta} temperature: {temperature}')
-                print(f'cost current: {cost_current} cost previous: {cost_previous} expected acceptance: {np.exp(-beta*delta)}')
+                beta = temperatures[index]
+                delta = cost_current - cost_previous_list[index]
+                print(f'delta: {delta} temperature: {temperatures[index]}')
+                print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
+                print(f'cost current: {cost_current} cost previous: {cost_previous_list[index]} expected acceptance: {np.exp(-beta*delta)}')
                 '''
                 if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
                     accepted += 1
@@ -787,6 +787,7 @@ with requests.Session() as s:
                 matrices_all_chains.append(np.array(recent_matrix))
             chains.append(np.array(matrices_all_chains))
             #ここから下でチェーンの交換を行う
+            
             if count % 10 == 0:
                 swap_index = random.sample(range(num_chains),2)
                 i1, i2 = swap_index
@@ -795,6 +796,7 @@ with requests.Session() as s:
                 r = random.random()
                 if r < np.exp(-temp_ratio*chain_delta):
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
+            
             count += 1
             print(np.array(chains[-1][0]).astype(int))
             print(np.array(chains[-1][-1]).astype(int))
