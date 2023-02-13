@@ -499,8 +499,8 @@ with requests.Session() as s:
             intransit = df_altitude_plot[transit_filter]
             ootransit = df_altitude_plot[~transit_filter][altitude_filter]
 
-            observation_value = observation_filter.astype(np.int).to_numpy()
-            observation_value += transit_filter.astype(np.int).to_numpy()
+            observation_value = (observation_filter * obs_lim_filter).astype(np.int).to_numpy()
+            #observation_value += transit_filter.astype(np.int).to_numpy()
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
                 observation_value = np.array([0.1 for item in observation_value])
             observation_value = observation_value*(4-int(object['Priority']))
@@ -700,11 +700,14 @@ with requests.Session() as s:
         chains = [random_matrices]
         cost_previous_list = np.full(num_chains,9999999999999999999999)
         cost_list = [[] for i in range(num_chains)]
-        temperatures = np.linspace(0.01,1,num_chains)
+        avg_list = [[] for i in range(num_chains)]
+        exchange_list = np.zeros(num_chains)
+
+        #高い方は本当に高くして、explorativeな性質を残さなければいけない→採択率を上げたい
+        temperatures = np.linspace(2,0.001,num_chains)
         #at least the last chain should work as per normal
 
-
-        while count <= 10000:
+        while count <= 20000:
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
             #これらのチェーンの何を保存すればよい？→random_matrixとすると72*100000*10*14=10億個の数字を保存しなければいけない?!
             #一個前のmatrixだけ保存しておくという方法はありそうだけど、どうだろう
@@ -757,12 +760,18 @@ with requests.Session() as s:
                         target_switch += 1
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
-                cost_current = (target_switch**3 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
+                cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# / (continuous_observation/recent_matrix.shape[1])**3
+                #how would i reward full transit observation including baseline?
+                #cost_current = (target_switch**3.5 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
+                #cost_current /= 1e6
                 cost_list[index].append(cost_current)
+
+                avg = np.sum(cost_list[index])/(count+1)
+                avg_list[index].append(avg)
                 #コストは小さい方がいいように考えている
                 #top10を見てみれば、全部違う組み合わせになっているはず
                 r = random.random()
-                beta = temperatures[index]
+                beta = 1/temperatures[index]
                 delta = cost_current - cost_previous_list[index]
                 print(f'delta: {delta} temperature: {temperatures[index]}')
                 print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
@@ -779,8 +788,8 @@ with requests.Session() as s:
                 if r < np.exp(-beta*delta):
                     accepted[index] += 1
                     cost_previous_list[index] = cost_current
-                    if count > burn:
-                        sum_matrix+=recent_matrix
+                    #if count > burn:
+                        #sum_matrix+=recent_matrix
                     print(f"accepted: {count} len: {len(chains)} acceptance: {accepted[index]/count}")
                 else:
                     print(f"rejected {count} len: {len(chains)} acceptance: {accepted[index]/count}")
@@ -804,40 +813,57 @@ with requests.Session() as s:
                 #swap_index = random.sample(range(num_chains),2)
                 #i1, i2 = swap_index
             for i1 in range(num_chains):
-                if count % 2 == 0:
-                    pass
-                else:
+                if count % 2 == 1:
                     i1 += 1
                 i2 = i1 + 1
                 #indexが超えたらswapしない→temp_deltaが0になるからnp.exp(-temp_delta*chain_delta)=1となり必ず採択される
-                if i1 >= num_chains:
+                if i1 >= num_chains-1:
                     i1 -= 1
                     i2 = i1
-                    #比ではなくて差（逆温度）（逆数の引き算）
-                    #逆温度が大きい方がコストが低い方がいいというのが最終状態になるように
-                    #temp_ratio = temperatures[i1]/temperatures[i2]
-                    #↓温度が低い方から温度が高い方を引いていると、deltaはマイナスになる
-                    #温度が低い方がコストが小さいと想定される（greedyなアルゴリズム）
-                    #temp_delta、chain_delta両方がマイナスになる可能性が高い→採択確率が下がる
-                    #逆の方がいい！i2 - i1
-                    temp_delta = temperatures[i2] - temperatures[i1]
-                    chain_delta = cost_previous_list[i2] - cost_previous_list[i1]
-                    r = random.random()
-                    if r < np.exp(-temp_delta*chain_delta):
-                        chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
-            
+                #比ではなくて差（逆温度）（逆数の引き算）
+                #逆温度が大きい方がコストが低い方がいいというのが最終状態になるように
+                #temp_ratio = temperatures[i1]/temperatures[i2]
+                #↓温度が低い方から温度が高い方を引いていると、deltaはマイナスになる
+                #温度が低い方がコストが小さいと想定される（greedyなアルゴリズム）
+                #temp_delta、chain_delta両方がマイナスになる可能性が高い→採択確率が下がる
+                #逆の方がいい！i2 - i1
+                temp_delta = 1/temperatures[i1] - 1/temperatures[i2]
+                chain_delta = cost_previous_list[i1] - cost_previous_list[i2]
+                r = random.random()
+                if r < np.exp(chain_delta*temp_delta):
+                    #ここでchainそのものでなくて温度とcostを入れ替えたらどうなる？
+                    chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
+                    print("exchanged")
+                    exchange_list[i1] += 1
+                else:
+                    print("no exchange")
             count += 1
+
             #一番低温のchainをモニター（コストが上位10をマーク）
             #コストの平均値（温度逆温度の関数でプロット）（温度一定の条件）
             #↑もし動いていなければ頭打ち
             #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
-            print(np.array(chains[-1][0]).astype(int))
             print(np.array(chains[-1][-1]).astype(int))
+            print(np.array(chains[-1][0]).astype(int))
         print(f'\n')
-        print(np.array(chains[-1][0]).astype(int))
-        print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(chains[-1][-1]).astype(int))
-        plt.hist(cost_list[0])
+        print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
+        print(np.array(chains[-1][0]).astype(int))
+        fig, ax = plt.subplots(2)
+        ax[0].plot(list(range(count)),avg_list[-1])
+        ax[0].set_title("coolest chain")
+        ax[1].plot(list(range(count)),avg_list[0])
+        ax[1].set_title("hottest chain")
+        print(exchange_list)
+
+        sorted_cost = sorted(set(cost_list[-1]))
+        best_indices = [cost_list[-1].index(sorted_cost[i]) for i in range(5)]
+
+        best_matrices = [np.array(chains[i][-1]).astype(int) for i in best_indices]
+        for index, item in enumerate(best_matrices):
+            print(f"  ------------------------------------------------------------------- Plan {index+1} -------------------------------------------------------------------")
+            print(item)
+
         plt.show()
         """
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
