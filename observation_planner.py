@@ -798,19 +798,33 @@ with requests.Session() as s:
             #1,2ペアを交換
             #chainのindexと温度のindex←逆引きtableも作ってみる
             #入れ替えは温度で行っても達成できる
-            
-            if count % 10 == 0:
-                #ランダムではなくてすぐ近傍
-                swap_index = random.sample(range(num_chains),2)
-                i1, i2 = swap_index
-                #比ではなくて差（逆温度）（逆数の引き算）
-                #逆温度が大きい方がコストが低い方がいいというのが最終状態になるように
-                temp_ratio = temperatures[i1]/temperatures[i2]
 
-                chain_delta = cost_previous_list[i1] - cost_previous_list[i2]
-                r = random.random()
-                if r < np.exp(-temp_ratio*chain_delta):
-                    chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
+            #if count % 10 == 0:
+                #ランダムではなくてすぐ近傍
+                #swap_index = random.sample(range(num_chains),2)
+                #i1, i2 = swap_index
+            for i1 in range(num_chains):
+                if count % 2 == 0:
+                    pass
+                else:
+                    i1 += 1
+                i2 = i1 + 1
+                #indexが超えたらswapしない→temp_deltaが0になるからnp.exp(-temp_delta*chain_delta)=1となり必ず採択される
+                if i1 >= num_chains:
+                    i1 -= 1
+                    i2 = i1
+                    #比ではなくて差（逆温度）（逆数の引き算）
+                    #逆温度が大きい方がコストが低い方がいいというのが最終状態になるように
+                    #temp_ratio = temperatures[i1]/temperatures[i2]
+                    #↓温度が低い方から温度が高い方を引いていると、deltaはマイナスになる
+                    #温度が低い方がコストが小さいと想定される（greedyなアルゴリズム）
+                    #temp_delta、chain_delta両方がマイナスになる可能性が高い→採択確率が下がる
+                    #逆の方がいい！i2 - i1
+                    temp_delta = temperatures[i2] - temperatures[i1]
+                    chain_delta = cost_previous_list[i2] - cost_previous_list[i1]
+                    r = random.random()
+                    if r < np.exp(-temp_delta*chain_delta):
+                        chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
             
             count += 1
             #一番低温のchainをモニター（コストが上位10をマーク）
@@ -823,7 +837,6 @@ with requests.Session() as s:
         print(np.array(chains[-1][0]).astype(int))
         print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(chains[-1][-1]).astype(int))
-        print(cost_list[0])
         plt.hist(cost_list[0])
         plt.show()
         """
