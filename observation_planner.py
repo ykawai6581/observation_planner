@@ -699,8 +699,10 @@ with requests.Session() as s:
         dimensions = len(constants['UT'])*len(plan['Name'])
         chains = [random_matrices]
         cost_previous_list = np.full(num_chains,9999999999999999999999)
+        cost_list = [[] for i in range(num_chains)]
         temperatures = np.linspace(0.01,1,num_chains)
         #at least the last chain should work as per normal
+
 
         while count <= 10000:
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
@@ -756,7 +758,9 @@ with requests.Session() as s:
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
                 cost_current = (target_switch**3 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
+                cost_list[index].append(cost_current)
                 #コストは小さい方がいいように考えている
+                #top10を見てみれば、全部違う組み合わせになっているはず
                 r = random.random()
                 beta = temperatures[index]
                 delta = cost_current - cost_previous_list[index]
@@ -787,21 +791,41 @@ with requests.Session() as s:
                 matrices_all_chains.append(np.array(recent_matrix))
             chains.append(np.array(matrices_all_chains))
             #ここから下でチェーンの交換を行う
+            #ここを作動させると収束しなくなる
+            
+            #どの頻度で行う？（先生は毎回）
+            #奇数chainと偶数chainで交換を交互に→収束が早くなる
+            #1,2ペアを交換
+            #chainのindexと温度のindex←逆引きtableも作ってみる
+            #入れ替えは温度で行っても達成できる
             
             if count % 10 == 0:
+                #ランダムではなくてすぐ近傍
                 swap_index = random.sample(range(num_chains),2)
                 i1, i2 = swap_index
+                #比ではなくて差（逆温度）（逆数の引き算）
+                #逆温度が大きい方がコストが低い方がいいというのが最終状態になるように
                 temp_ratio = temperatures[i1]/temperatures[i2]
+
                 chain_delta = cost_previous_list[i1] - cost_previous_list[i2]
                 r = random.random()
                 if r < np.exp(-temp_ratio*chain_delta):
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
             
             count += 1
+            #一番低温のchainをモニター（コストが上位10をマーク）
+            #コストの平均値（温度逆温度の関数でプロット）（温度一定の条件）
+            #↑もし動いていなければ頭打ち
+            #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
             print(np.array(chains[-1][0]).astype(int))
             print(np.array(chains[-1][-1]).astype(int))
+        print(f'\n')
         print(np.array(chains[-1][0]).astype(int))
+        print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(chains[-1][-1]).astype(int))
+        print(cost_list[0])
+        plt.hist(cost_list[0])
+        plt.show()
         """
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
