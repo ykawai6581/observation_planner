@@ -693,7 +693,7 @@ with requests.Session() as s:
 
         #cost_previous = 99999999999999999999999999
         count = 0
-        burn = 10000
+        burn = 7500
         accepted = np.zeros(num_chains)
         acceptance_rate = []
         dimensions = len(constants['UT'])*len(plan['Name'])
@@ -760,7 +760,7 @@ with requests.Session() as s:
                         target_switch += 1
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
-                cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# / (continuous_observation/recent_matrix.shape[1])**3
+                cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# -(continuous_observation/len(constants['UT'])))
                 #how would i reward full transit observation including baseline?
                 #cost_current = (target_switch**3.5 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
                 #cost_current /= 1e6
@@ -846,24 +846,30 @@ with requests.Session() as s:
             print(np.array(chains[-1][-1]).astype(int))
             print(np.array(chains[-1][0]).astype(int))
         print(f'\n')
-        print(np.array(chains[-1][-1]).astype(int))
+        print(np.array(list(reversed(chains[-1][-1]))).astype(int))
         print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
-        print(np.array(chains[-1][0]).astype(int))
-        fig, ax = plt.subplots(2)
-        ax[0].plot(list(range(count)),avg_list[-1])
-        ax[0].set_title("coolest chain")
-        ax[1].plot(list(range(count)),avg_list[0])
-        ax[1].set_title("hottest chain")
+        print(np.array(list(reversed(chains[-1][0]))).astype(int))
+        fig, ax = plt.subplots(num_chains)
+        for i in range(num_chains):
+            ax[i].plot(list(range(count))[burn:],avg_list[i][burn:],label=f"T = {temperatures[i]:.3f}")
+            ax[i].legend(loc="upper right")
+            fig.tight_layout()
+        plt.subplots_adjust(hspace=0.)
         print(exchange_list)
 
         sorted_cost = sorted(set(cost_list[-1]))
         best_indices = [cost_list[-1].index(sorted_cost[i]) for i in range(5)]
 
-        best_matrices = [np.array(chains[i][-1]).astype(int) for i in best_indices]
+        best_matrices = [np.array(list(reversed(chains[i][-1]))).astype(int) for i in best_indices]
+        observation_matrix = np.array(list(reversed(observation_matrix))).astype(bool).astype(int)
+
         for index, item in enumerate(best_matrices):
             print(f"  ------------------------------------------------------------------- Plan {index+1} -------------------------------------------------------------------")
             print(item)
 
+        #print(sorted_cost)
+        print(f"  ------------------------------------------------------------------- Observation matrix -------------------------------------------------------------------")
+        print(observation_matrix)
         plt.show()
         """
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
