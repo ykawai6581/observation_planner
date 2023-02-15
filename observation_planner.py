@@ -185,6 +185,14 @@ def darken_color(color,value):
     color = [item if item < 1 else 1 for item in color]
     return np.array(color)
 
+def moon_step(moon):
+    if moon < 30:
+        return 0
+    if (moon >= 30) & (moon <= 50):
+        return 0.5
+    else:
+        return 1 
+
 with requests.Session() as s:
 
     day = datetime.datetime.strptime(data["date"], "%Y-%m-%d")
@@ -270,7 +278,7 @@ with requests.Session() as s:
         lists = soup.find_all("ul")
         special_observations = lists[-1].find_all("li")
         for item in special_observations:
-            extracted_date = item.text.split(" ")[:5]
+            extracted_date = item.text.split(" ")[:5]#ここの表記大事
             special_date = [extracted_date[0]] + extracted_date[3:]
             special_date = datetime.datetime.strptime(" ".join(special_date),"%Y %d %B")
             if day == special_date:
@@ -465,6 +473,7 @@ with requests.Session() as s:
         #print(plans[0].columns)
 
         colors = []
+        max_priority = plan['Priority'].min()
 
         for index, object in plan.iterrows():
             meta = targets_df[targets_df["name"] == object["Name"]]
@@ -502,9 +511,10 @@ with requests.Session() as s:
             observation_value = (observation_filter * obs_lim_filter).astype(np.int).to_numpy()
             #observation_value += transit_filter.astype(np.int).to_numpy()
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
-                observation_value = np.array([0.1 for item in observation_value])
-            observation_value = observation_value*(4-int(object['Priority']))
-            observation_value = np.array([item if bool(item) else 0 for item in observation_value]) * np.log(float(object["Moon"])-30)/np.e
+                observation_value = np.array([0.1 for item in observation_value]) #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
+            #下で、priorityが一番高い天体、月が近いが優遇が１になるようにスケーリングする
+            observation_value = observation_value*(max_priority/int(object['Priority']))*moon_step(float(object['Moon']))#* np.log(float(object["Moon"])-30)/np.e
+            observation_value = np.array([item if bool(item) else 0 for item in observation_value])
             observation_matrix.append(observation_value)
 
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
@@ -693,21 +703,23 @@ with requests.Session() as s:
 
         #cost_previous = 99999999999999999999999999
         count = 0
-        burn = 7500
+        steps = 50000
+        burn  = 7500
         accepted = np.zeros(num_chains)
         acceptance_rate = []
         dimensions = len(constants['UT'])*len(plan['Name'])
         chains = [random_matrices]
-        cost_previous_list = np.full(num_chains,9999999999999999999999)
+        cost_previous_list = np.full(num_chains,np.inf)
         cost_list = [[] for i in range(num_chains)]
         avg_list = [[] for i in range(num_chains)]
         exchange_list = np.zeros(num_chains)
 
         #高い方は本当に高くして、explorativeな性質を残さなければいけない→採択率を上げたい
-        temperatures = np.linspace(2,0.001,num_chains)
+        temperatures = np.linspace(np.log(0.2),np.log(1e-4),num_chains)
+        temperatures = np.exp(temperatures)
         #at least the last chain should work as per normal
 
-        while count <= 20000:
+        while count <= steps:
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
             #これらのチェーンの何を保存すればよい？→random_matrixとすると72*100000*10*14=10億個の数字を保存しなければいけない?!
             #一個前のmatrixだけ保存しておくという方法はありそうだけど、どうだろう
@@ -725,15 +737,34 @@ with requests.Session() as s:
                     jump_to = random.randint(0,recent_matrix.shape[0]-1)
 
                 recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
-                plan_value = np.sum(observation_matrix*recent_matrix)/dimensions
+                #plan_value = np.sum(observation_matrix*recent_matrix)/dimensions
+                plan_value = np.sum(observation_matrix*recent_matrix)/len(constants['UT']) #the plan value is the expected value of each column (time grid) ← takes the value from 0 to 1
+                observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
+                meaninful_observations = observation_boolean_matrix*recent_matrix #←this gives the matrix of 0 and 1 denoting all observations conducted at meaninful minutes
 
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
+                observed_targets = 0
+                observed_fraction_exp = 0
                 total_separation = 0
                 target_switch = 0
                 continuous_observation = 0
                 repeated_observation = 0
                 #print(f'{jump_from} => {jump_to}')
+                for rows_m, rows_o in zip(meaninful_observations,observation_boolean_matrix):
+                    full_observation = np.sum(rows_o)
+                    current_observation = np.sum(rows_m)
+                    if full_observation != len(constants['UT']): #if not filler add to observed fraction
+                        observed_fraction = np.sum(rows_m)/np.sum(rows_o)
+                        observed_fraction_exp += observed_fraction
+                        if observed_fraction != 0: #which means that the target is observed at meaningful times to some degree
+                            observed_targets += 1
 
+                try:
+                    observed_fraction_exp /= observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
+                except ZeroDivisionError:
+                    observed_fraction_exp = 0 #observation plan with only fillers has the value of 0 in terms of observed fraction
+                #what can i do to define the observation fraction of filler targets
+                '''
                 for rows in recent_matrix:
                     if len(set(rows)) == 1 and list(set(rows))[0] == 0:
                         pass
@@ -744,38 +775,53 @@ with requests.Session() as s:
                         comes_back = len(set(rows[index_first_one:index_last_one])) == 2
                         if comes_back:
                             repeated_observation += 1
-
+                
                 for j in range(0,recent_matrix.shape[1]):
                     index_current = np.where(recent_matrix[:,j] == 1)[0][0]
                     try:
                         index_next = np.where(recent_matrix[:,j+1] == 1)[0][0]
                     except IndexError:
                         index_next = np.where(recent_matrix[:,j] == 1)[0][0]
+                        
+                                        
                     separation = df_separation.iloc[index_next,index_current]
                     #print(separation)
                     total_separation += separation/360
+                    
+
                     if index_next == index_current:
                         continuous_observation += 1
                     else:
                         target_switch += 1
+                    '''
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
-                cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# -(continuous_observation/len(constants['UT'])))
+                #cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# -(continuous_observation/len(constants['UT'])))
                 #how would i reward full transit observation including baseline?
+                #↑上の問題が解決されないと、ターゲットスイッチの少ないfillerをずっとみているのがいいことになってしまう
+                #define observed fraction
+                #観測するとされている各天体に関して、observed fractionを計算して、その天体数で割って、平均のobserved fractionを導出する→1に近い方がいい
+
+                target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch
+                repeated_observation_exp = repeated_observation/len(constants['UT']) #the expected value that the observation is repeated in each grid of time #0 if no repeated observations
+                cost_current = (1 - plan_value) * (1 - observed_fraction_exp)# -(continuous_observation/len(constants['UT'])))
+                #cost_current = (repeated_observation_exp) * (1 - plan_value) * (1 - observed_fraction_exp)#もはやtarget switchはいらない！？
+                #そうなってくるとrepeated observationが0回の方がいいという思想も局所解を生み出すだけ？
+                #cost_current = (1 - plan_value) * (1 - observed_fraction_exp)#もはやtarget switchはいらない！？
+                #cost_current = target_switch_exp * repeated_observation_exp * (1 - plan_value) * (1 - observed_fraction_exp)# -(continuous_observation/len(constants['UT'])))
+                #the above cost function approaches 0 when there is the least number of target switches, repeated observations and highest plan value.
                 #cost_current = (target_switch**3.5 * repeated_observation) / (plan_value**3) / (continuous_observation/recent_matrix.shape[1])**3
                 #cost_current /= 1e6
-                cost_list[index].append(cost_current)
-
-                avg = np.sum(cost_list[index])/(count+1)
-                avg_list[index].append(avg)
                 #コストは小さい方がいいように考えている
                 #top10を見てみれば、全部違う組み合わせになっているはず
                 r = random.random()
                 beta = 1/temperatures[index]
                 delta = cost_current - cost_previous_list[index]
-                print(f'delta: {delta} temperature: {temperatures[index]}')
-                print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} total separation: {total_separation:.2f} target switch: {target_switch} repeated observation: {repeated_observation} continuous observation: {continuous_observation}')
-                print(f'cost current: {cost_current} cost previous: {cost_previous_list[index]} expected acceptance: {np.exp(-beta*delta)}')
+
+                print(f'delta: {delta:.3f} temperature: {temperatures[index]:.3f}')
+                print(f'total cost: {cost_current:.2f} plan value: {plan_value:.2f} observed fraction: {observed_fraction_exp:.2f} target switch: {target_switch} repeated observation: {repeated_observation} total separation: {total_separation:.2f}')
+                print(f'cost current: {cost_current:.3f} cost previous: {cost_previous_list[index]:.3f} expected acceptance: {np.exp(-beta*delta):.3f}')
+                
                 '''
                 if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
                     accepted += 1
@@ -790,11 +836,15 @@ with requests.Session() as s:
                     cost_previous_list[index] = cost_current
                     #if count > burn:
                         #sum_matrix+=recent_matrix
-                    print(f"accepted: {count} len: {len(chains)} acceptance: {accepted[index]/count}")
+                    print(f"accepted: {count}/{steps} acceptance: {accepted[index]/count:.3f}")
                 else:
-                    print(f"rejected {count} len: {len(chains)} acceptance: {accepted[index]/count}")
+                    print(f"rejected: {count}/{steps} acceptance: {accepted[index]/count:.3f}")
                     recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
-                    #1ずらすのか、それともランダムに飛ばすのか→隣の天体とは相関がないので2ではなく1ずらす理由はない
+                if count > burn:
+                    cost_list[index].append(cost_previous_list[index])
+                    #print(f'appended {cost_previous_list[index]}')
+                    avg = np.sum(cost_list[index])/(count-burn+1)
+                    avg_list[index].append(avg)
                 #ここまでで、1イテレーションでacceptするにせよしないにせよそのチェーンのrandom matrixが決まっている
                 #それをappendしたい
                 matrices_all_chains.append(np.array(recent_matrix))
@@ -827,10 +877,10 @@ with requests.Session() as s:
                 #温度が低い方がコストが小さいと想定される（greedyなアルゴリズム）
                 #temp_delta、chain_delta両方がマイナスになる可能性が高い→採択確率が下がる
                 #逆の方がいい！i2 - i1
-                temp_delta = 1/temperatures[i1] - 1/temperatures[i2]
-                chain_delta = cost_previous_list[i1] - cost_previous_list[i2]
+                temp_delta = 1/temperatures[i1] - 1/temperatures[i2] #これはプラスになる
+                chain_delta = cost_previous_list[i1] - cost_previous_list[i2] #
                 r = random.random()
-                if r < np.exp(chain_delta*temp_delta):
+                if r < np.exp(chain_delta*temp_delta): #ここはマイナスいらない
                     #ここでchainそのものでなくて温度とcostを入れ替えたらどうなる？
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
                     print("exchanged")
@@ -845,22 +895,26 @@ with requests.Session() as s:
             #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
             print(np.array(chains[-1][-1]).astype(int))
             print(np.array(chains[-1][0]).astype(int))
+
         print(f'\n')
         print(np.array(list(reversed(chains[-1][-1]))).astype(int))
         print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(list(reversed(chains[-1][0]))).astype(int))
-        fig, ax = plt.subplots(num_chains)
+        fig, ax = plt.subplots(num_chains,2,sharex='col')
         for i in range(num_chains):
-            ax[i].plot(list(range(count))[burn:],avg_list[i][burn:],label=f"T = {temperatures[i]:.3f}")
-            ax[i].legend(loc="upper right")
+            ax[i,0].plot(list(range(count-burn-1)),avg_list[-i],label=f"T = {temperatures[i]:.3f}")
+            ax[i,0].legend(loc="upper right")
+            ax[i,1].hist(cost_list[-i],label=f"T = {temperatures[i]:.3f}")
+            ax[i,1].legend(loc="upper right")
             fig.tight_layout()
+            #ax[i,0].set_ylim(0,1)
         plt.subplots_adjust(hspace=0.)
         print(exchange_list)
 
-        sorted_cost = sorted(set(cost_list[-1]))
+        sorted_cost = sorted(set(cost_list[-1][burn:]))
         best_indices = [cost_list[-1].index(sorted_cost[i]) for i in range(5)]
 
-        best_matrices = [np.array(list(reversed(chains[i][-1]))).astype(int) for i in best_indices]
+        best_matrices = [np.array(list(reversed(chains[i+burn][-1]))).astype(int) for i in best_indices]
         observation_matrix = np.array(list(reversed(observation_matrix))).astype(bool).astype(int)
 
         for index, item in enumerate(best_matrices):
@@ -871,6 +925,7 @@ with requests.Session() as s:
         print(f"  ------------------------------------------------------------------- Observation matrix -------------------------------------------------------------------")
         print(observation_matrix)
         plt.show()
+
         """
             np.set_printoptions(threshold=np.inf,linewidth=np.inf)
             #print(random_matrix)
