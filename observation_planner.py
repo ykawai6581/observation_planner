@@ -30,7 +30,7 @@ except ModuleNotFoundError:
 
 warnings.filterwarnings("ignore")
 #warnings.filterwarnings('ignore', message="posx and posy should be finite values")
-
+np.set_printoptions(threshold=np.inf,linewidth=np.inf)
 parser = argparse.ArgumentParser(description=\
 '## obslog formatter ver. 2022 Nov. 19 ##')
 
@@ -460,6 +460,7 @@ with requests.Session() as s:
         #ax_polar_plot.scatter(constants['Moon azimuth']*2*np.pi/360, np.cos(constants['Moon altitude']*2*np.pi/360), marker='D',color='black',s=2)
 
         observation_matrix = []
+        transit_matrix = []
 
         object_df_list = []
         object_info_list = []
@@ -512,10 +513,14 @@ with requests.Session() as s:
             #observation_value += transit_filter.astype(np.int).to_numpy()
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
                 observation_value = np.array([0.1 for item in observation_value]) * obs_lim_filter #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
+                transit_value = obs_lim_filter.astype(np.int).to_numpy()
+            else:
+                transit_value = observation_filter.astype(np.int).to_numpy()
             #下で、priorityが一番高い天体、月が近いが優遇が１になるようにスケーリングする
             observation_value = observation_value*(max_priority/int(object['Priority']))*moon_step(float(object['Moon']))#* np.log(float(object["Moon"])-30)/np.e
             #observation_value = np.array([item if bool(item) else 0 for item in observation_value])
             observation_matrix.append(observation_value)
+            transit_matrix.append(transit_value)
 
             altitude_plot, = ax_airmass_plot.plot(mdates.date2num(df_altitude_plot['JST']), df_altitude_plot['Alt'], color=color, alpha=0.)
             ax_airmass_plot.plot(mdates.date2num(intransit['JST']), intransit['Alt'], color=color, label=object['Name'],linestyle="solid")
@@ -718,6 +723,7 @@ with requests.Session() as s:
         temperatures = np.linspace(np.log(0.2),np.log(1e-3),num_chains)
         temperatures = np.exp(temperatures)
         #at least the last chain should work as per normal
+        observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
 
         while count <= steps:
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
@@ -740,7 +746,6 @@ with requests.Session() as s:
                 #plan_value = np.sum(observation_matrix*recent_matrix)/dimensions
                 plan_value = np.sum(observation_matrix*recent_matrix)/len(constants['UT']) #the plan value is the expected value of each column (time grid) ← takes the value from 0 to 1
                 #the highest at 1 when the plan is only observing transits of the highest priority (among that day's list of targets) at all times and moon is not affecting the observation at all.
-                observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
                 meaninful_observations = observation_boolean_matrix*recent_matrix #←this gives the matrix of 0 and 1 denoting all observations conducted at meaninful minutes
 
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
@@ -751,11 +756,11 @@ with requests.Session() as s:
                 continuous_observation = 0
                 repeated_observation = 0
                 #print(f'{jump_from} => {jump_to}')
-                for rows_m, rows_o in zip(meaninful_observations,observation_boolean_matrix):
-                    full_observation = np.sum(rows_o)
+                for rows_m, rows_t in zip(meaninful_observations,transit_matrix):
+                    full_observation = np.sum(rows_t)
                     current_observation = np.sum(rows_m)
                     if current_observation != 0: #which means that the target is observed at meaningful times to some degree
-                        observed_fraction = np.sum(rows_m)/np.sum(rows_o)
+                        observed_fraction = np.sum(rows_m)/np.sum(rows_t)
                         observed_fraction_exp += observed_fraction
                         observed_targets += 1
                 
@@ -795,7 +800,7 @@ with requests.Session() as s:
                 extra_target_switch_exp = extra_target_switch/len(constants['UT']) #the expected value that the observation in each grid of time is extraneous 0 if none
                 target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch 1 if target switched every grid of time
                 observed_fraction_exp /= observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
-                
+
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
                 #cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# -(continuous_observation/len(constants['UT'])))
