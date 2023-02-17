@@ -722,6 +722,7 @@ with requests.Session() as s:
         observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
 
         while count <= steps:
+            print(f"  -------------------------------------------------------------  Step {count}  ------------------------------------------------------------------")
             #以下のループで全チェーン分の1イタレーションを回し切る（このループの後に入れ替えるか決める）
             #これらのチェーンの何を保存すればよい？→random_matrixとすると72*100000*10*14=10億個の数字を保存しなければいけない?!
             #一個前のmatrixだけ保存しておくという方法はありそうだけど、どうだろう
@@ -748,9 +749,12 @@ with requests.Session() as s:
 
                 current_observation = meaninful_observations.dot(ones)
                 full_observation = transit_matrix.dot(ones)
+                #extended_observation = observation_matrix.dot(ones)#伸び代があればこっちをfull observationより使いたい
                 observed_fraction = current_observation/full_observation
+                obs_duration_exp = current_observation/len(constants['UT']) #the expected number of 1 in each grid of time for each target
                 observed_targets = np.count_nonzero(observed_fraction)#count non zero columns
                 observed_fraction_exp = np.sum(observed_fraction)/observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
+                obs_duration_exp = np.sum(obs_duration_exp)/observed_targets #longer the observation, higher the expected value, smaller the number of observed targes, higher the expected value
 
                 target_switch = int(len(constants['UT']) - 1 - np.sum(recent_matrix[:,1:]*recent_matrix[:,:-1]))
 
@@ -760,11 +764,15 @@ with requests.Session() as s:
                 target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch 1 if target switched every grid of time
 
                 #ideally equal to zero
-                cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
-                #今のコスト関数の設計だと、正しい重みづけがされていれば、価値が高くて、全容を撮り切れるトランジットから順番に、出戻りしない形で観測されるはず
+                cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #今のコスト関数の設計だと、正しい重みづけがされていれば、価値が高くて、全容を撮り切れるトランジットから順番に、一天体の観測時間を最大化しながら、かつ出戻りしない形で観測されるはず
                 #あとは、target switchの絶対値をどのようにかして考慮しないと、二つ同じ長さのトランジットがあったとき、一つだけフルでとるのと、二つとも半分だけ取ることの期待値が0.5で同じになってしまう
+                #↑一天体の平均観測時間を最大化することで解決！
                 #priorityが高いhalfトランジットよりlow priorityのfull transitということはfractionの方を重視？
 
+
+                #何もない時にはbaselineを伸ばしたほうがいいことにする
+                #→observed fractionが1の時は、filterをtransit filterじゃなくてobslim filterにする
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
                 #cost_current = ((target_switch+repeated_observation)/len(plan['Name'])) / (plan_value)# -(continuous_observation/len(constants['UT'])))
@@ -848,8 +856,7 @@ with requests.Session() as s:
                     exchange_list[i1] += 1
             
             count += 1
-            print(np.array(exchange_list*100/count).astype(int))
-            print(f"  -----------------------------------------------------------  {i}th step ----------------------------------------------------------------")
+            print(f'Exchange percentage: {np.array(exchange_list*100/count).astype(int)}')
 
             #一番低温のchainをモニター（コストが上位10をマーク）
             #コストの平均値（温度逆温度の関数でプロット）（温度一定の条件）
