@@ -708,19 +708,19 @@ with requests.Session() as s:
 
         #cost_previous = 99999999999999999999999999
         count = 0
-        steps = 50000
-        burn  = 7500
+        steps = 200000
+        burn  = 15000
         accepted = np.zeros(num_chains)
         acceptance_rate = []
-        dimensions = len(constants['UT'])*len(plan['Name'])
         chains = [random_matrices]
         cost_previous_list = np.full(num_chains,np.inf)
         cost_list = [[] for i in range(num_chains)]
-        avg_list = [[] for i in range(num_chains)]
         exchange_list = np.zeros(num_chains)
+        ones = np.ones((len(constants['UT']),1))
+        transit_matrix = np.array(transit_matrix)
 
         #高い方は本当に高くして、explorativeな性質を残さなければいけない→採択率を上げたい
-        temperatures = np.linspace(np.log(0.2),np.log(1e-3),num_chains)
+        temperatures = np.linspace(np.log(2),np.log(6e-3),num_chains)
         temperatures = np.exp(temperatures)
         #at least the last chain should work as per normal
         observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
@@ -749,57 +749,19 @@ with requests.Session() as s:
                 meaninful_observations = observation_boolean_matrix*recent_matrix #←this gives the matrix of 0 and 1 denoting all observations conducted at meaninful minutes
 
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
-                observed_targets = 0
-                observed_fraction_exp = 0
-                total_separation = 0
-                target_switch = 0
-                continuous_observation = 0
-                repeated_observation = 0
-                #print(f'{jump_from} => {jump_to}')
-                for rows_m, rows_t in zip(meaninful_observations,transit_matrix):
-                    full_observation = np.sum(rows_t)
-                    current_observation = np.sum(rows_m)
-                    if current_observation != 0: #which means that the target is observed at meaningful times to some degree
-                        observed_fraction = np.sum(rows_m)/np.sum(rows_t)
-                        observed_fraction_exp += observed_fraction
-                        observed_targets += 1
-                
-                '''
-                for rows in recent_matrix:
-                    if len(set(rows)) == 1 and list(set(rows))[0] == 0:
-                        pass
-                    else:
-                        index_ones      = np.where(rows == 1)
-                        index_first_one = index_ones[0][0]
-                        index_last_one  = index_ones[0][-1]
-                        comes_back = len(set(rows[index_first_one:index_last_one])) == 2
-                        if comes_back:
-                            repeated_observation += 1
-                '''
-                for j in range(0,recent_matrix.shape[1]):
-                    index_current = np.where(recent_matrix[:,j] == 1)[0][0]
-                    try:
-                        index_next = np.where(recent_matrix[:,j+1] == 1)[0][0]
-                    except IndexError:
-                        index_next = np.where(recent_matrix[:,j] == 1)[0][0]
-                        
-                    '''                    
-                    separation = df_separation.iloc[index_next,index_current]
-                    #print(separation)
-                    total_separation += separation/360
-                    '''
 
-                    if index_next == index_current:
-                        pass
-                        #continuous_observation += 1
-                    else:
-                        target_switch += 1
+                current_observation = meaninful_observations.dot(ones)
+                full_observation = transit_matrix.dot(ones)
+                observed_fraction = current_observation/full_observation
+                observed_targets = np.count_nonzero(observed_fraction)#count non zero columns
+                observed_fraction_exp = np.sum(observed_fraction)/observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
+
+                target_switch = int(len(constants['UT']) - 1 - np.sum(recent_matrix[:,1:]*recent_matrix[:,:-1]))
 
                 allowed_target_switch = observed_targets - 1
                 extra_target_switch = target_switch - allowed_target_switch#target switch > allowed target switch , 0 if no repeated observation
                 extra_target_switch_exp = extra_target_switch/len(constants['UT']) #the expected value that the observation in each grid of time is extraneous 0 if none
                 target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch 1 if target switched every grid of time
-                observed_fraction_exp /= observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
 
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
@@ -812,7 +774,11 @@ with requests.Session() as s:
                 #repeated_observation_exp = repeated_observation/len(constants['UT']) #the expected value that the observation is repeated in each grid of time #0 if no repeated observations
                 #cost_current = (1 - plan_value) * (1 - observed_fraction_exp) * extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
 
-                cost_current = (1 - plan_value) * (1 - observed_fraction_exp) + extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #ideally equal to zero
+                cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #今のコスト関数の設計だと、正しい重みづけがされていれば、価値が高くて、全容を撮り切れるトランジットから順番に、出戻りしない形で観測されるはず
+                #あとは、target switchの絶対値をどのようにかして考慮しないと、二つ同じ長さのトランジットがあったとき、一つだけフルでとるのと、二つとも半分だけ取ることの期待値が0.5で同じになってしまう
+                #priorityが高いhalfトランジットよりlow priorityのfull transitということはfractionの方を重視？
 
                 #cost_current = (1 - plan_value) * (1 - (observed_fraction_exp)) # -(continuous_observation/len(constants['UT'])))
                 #targets switchの回数がobserved fractionにだけ効く？これでも0回になったらcostが0で最小になっちゃう
@@ -833,9 +799,50 @@ with requests.Session() as s:
                 delta = cost_current - cost_previous_list[index]
 
                 print(f'delta: {delta:.3f} temperature: {temperatures[index]:.3f}')
-                print(f'total cost: {cost_current:.3f} plan value: {plan_value*100:.1f}pts observed fraction: {observed_fraction_exp*100:.1f}% target switch: {target_switch} repeated observation: {repeated_observation} total separation: {total_separation:.2f}')
+                #print(f'total cost: {cost_current:.3f} plan value: {plan_value*100:.1f}pts observed fraction: {observed_fraction_exp*100:.1f}% target switch: {target_switch} repeated observation: {} total separation: {total_separation:.2f}')
+                print(f'plan value: {plan_value*100:.1f}pts observed fraction: {observed_fraction_exp*100:.1f}% target switch: {target_switch} ({target_switch-allowed_target_switch} extra)')
                 print(f'cost current: {cost_current:.3f} cost previous: {cost_previous_list[index]:.3f} expected acceptance: {np.exp(-beta*delta):.3f}')
+                                #print(f'{jump_from} => {jump_to}')
+                '''
+                for rows_m, rows_t in zip(meaninful_observations,transit_matrix):
+                    full_observation = np.sum(rows_t)
+                    current_observation = np.sum(rows_m)
+                    if current_observation != 0: #which means that the target is observed at meaningful times to some degree
+                        observed_fraction = np.sum(rows_m)/np.sum(rows_t)
+                        observed_fraction_exp += observed_fraction
+                        observed_targets += 1
+                '''
+                '''
+                for rows in recent_matrix:
+                    if len(set(rows)) == 1 and list(set(rows))[0] == 0:
+                        pass
+                    else:
+                        index_ones      = np.where(rows == 1)
+                        index_first_one = index_ones[0][0]
+                        index_last_one  = index_ones[0][-1]
+                        comes_back = len(set(rows[index_first_one:index_last_one])) == 2
+                        if comes_back:
+                            repeated_observation += 1
                 
+                for j in range(0,recent_matrix.shape[1]):
+                    index_current = np.where(recent_matrix[:,j] == 1)[0][0]
+                    try:
+                        index_next = np.where(recent_matrix[:,j+1] == 1)[0][0]
+                    except IndexError:
+                        index_next = np.where(recent_matrix[:,j] == 1)[0][0]
+                        
+                               
+                    separation = df_separation.iloc[index_next,index_current]
+                    #print(separation)
+                    total_separation += separation/360
+                    
+
+                    if index_next == index_current:
+                        pass
+                        #continuous_observation += 1
+                    else:
+                        target_switch_old += 1
+                '''
                 '''
                 if cost_current < cost_previous:##ここにコスト関数を計算した後に採択するかの計算をしていく
                     accepted += 1
@@ -857,8 +864,10 @@ with requests.Session() as s:
                 if count >= burn:
                     cost_list[index].append(cost_previous_list[index])
                     #print(f'appended {cost_previous_list[index]}')
+                    '''
                     avg = np.sum(cost_list[index])/(count-burn)
                     avg_list[index].append(avg)
+                    '''
                 #ここまでで、1イテレーションでacceptするにせよしないにせよそのチェーンのrandom matrixが決まっている
                 #それをappendしたい
                 matrices_all_chains.append(np.array(recent_matrix))
@@ -897,26 +906,27 @@ with requests.Session() as s:
                 if r < np.exp(chain_delta*temp_delta): #ここはマイナスいらない
                     #ここでchainそのものでなくて温度とcostを入れ替えたらどうなる？
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
-                    print("exchanged")
                     exchange_list[i1] += 1
-                else:
-                    print("no exchange")
+            
             count += 1
+            print(np.array(exchange_list*100/count).astype(int))
 
             #一番低温のchainをモニター（コストが上位10をマーク）
             #コストの平均値（温度逆温度の関数でプロット）（温度一定の条件）
             #↑もし動いていなければ頭打ち
             #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
-            print(np.array(chains[-1][-1]).astype(int))
-            print(np.array(chains[-1][0]).astype(int))
+            #print(np.array(chains[-1][-1]).astype(int))
+            #print(np.array(chains[-1][0]).astype(int))
 
         print(f'\n')
         print(np.array(list(reversed(chains[-1][-1]))).astype(int))
         print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(list(reversed(chains[-1][0]))).astype(int))
         fig, ax = plt.subplots(num_chains,2,sharex='col')
+        expected_cost = np.cumsum(cost_list,axis=1)/list(range(1,count-burn+1))
+
         for i in range(num_chains):
-            ax[i,0].plot(list(range(count-burn)),avg_list[-i],label=f"T = {temperatures[i]:.3f}")
+            ax[i,0].plot(list(range(burn,count)),expected_cost[-i],label=f"T = {temperatures[i]:.3f}")
             ax[i,0].legend(loc="upper right")
             ax[i,1].hist(cost_list[-i],label=f"T = {temperatures[i]:.3f}")
             ax[i,1].legend(loc="upper right")
@@ -924,7 +934,8 @@ with requests.Session() as s:
         plt.subplots_adjust(hspace=0.)
         print(exchange_list)
 
-        sorted_cost = sorted(set(cost_list[-1][burn+1:]))
+        sorted_cost = sorted(set(cost_list[-1][burn:]))
+
         best_indices = [cost_list[-1].index(sorted_cost[i]) for i in range(min(5,len(sorted_cost)))]
 
         best_matrices = [np.array(list(reversed(chains[i+burn][-1]))).astype(int) for i in best_indices]
@@ -934,10 +945,18 @@ with requests.Session() as s:
         for index, item in enumerate(best_matrices):
             print(f"  ------------------------------------------------------------------- Plan {index+1} -------------------------------------------------------------------")
             print(item)
+            fraction_list = []
+            for row_i, row_t in zip(item, list(reversed(transit_matrix))):
+                fraction = np.sum(row_i)/np.sum(row_t)
+                fraction_list.append(int(fraction*100))
+            fraction_list = np.array(fraction_list)
+            print(fraction_list[fraction_list.astype(bool)])
 
         #print(sorted_cost)
         print(f"  ------------------------------------------------------------------- Observation matrix -------------------------------------------------------------------")
         print(observation_matrix)
+        print(f"  --------------------------------------------------------------------- Transit matrix ---------------------------------------------------------------------")
+        print(np.array(list(reversed(transit_matrix))))
         plt.show()
 
         """
