@@ -702,10 +702,10 @@ with requests.Session() as s:
         init_matrix = np.array(random_matrix)
         sum_matrix = np.array(random_matrix)*0        
 
-        #cost_previous = 99999999999999999999999999
         count = 0
-        steps = 500000
-        burn  = 15000
+        steps = 600000
+        burn  = 100000
+        thin = 500
         accepted = np.zeros(num_chains)
         acceptance_rate = []
         chains = [random_matrices]
@@ -716,7 +716,7 @@ with requests.Session() as s:
         transit_matrix = np.array(transit_matrix)
 
         #高い方は本当に高くして、explorativeな性質を残さなければいけない→採択率を上げたい
-        temperatures = np.linspace(np.log(2),np.log(6e-3),num_chains)
+        temperatures = np.linspace(np.log(1),np.log(1e-2),num_chains)
         temperatures = np.exp(temperatures)
         #at least the last chain should work as per normal
         observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
@@ -764,14 +764,16 @@ with requests.Session() as s:
                 target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch 1 if target switched every grid of time
 
                 #ideally equal to zero
-                cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                cost_current = (1 - plan_value) + (1 - observed_fraction_exp) + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+
                 #今のコスト関数の設計だと、正しい重みづけがされていれば、価値が高くて、全容を撮り切れるトランジットから順番に、一天体の観測時間を最大化しながら、かつ出戻りしない形で観測されるはず
                 #あとは、target switchの絶対値をどのようにかして考慮しないと、二つ同じ長さのトランジットがあったとき、一つだけフルでとるのと、二つとも半分だけ取ることの期待値が0.5で同じになってしまう
                 #↑一天体の平均観測時間を最大化することで解決！
                 #priorityが高いhalfトランジットよりlow priorityのfull transitということはfractionの方を重視？
 
-
                 #何もない時にはbaselineを伸ばしたほうがいいことにする
+                #obs durationを、observed fractionより重視
                 #→observed fractionが1の時は、filterをtransit filterじゃなくてobslim filterにする
                 #target switchが減ったら確実に採用されるようにしたい→小さければ小さいほど褒美を与える
                 #total_separation
@@ -813,8 +815,8 @@ with requests.Session() as s:
                 else:
                     print(f"rejected: {count}/{steps} acceptance: {accepted[index]*100/count:.1f}%")
                     recent_matrix[:,random_col][jump_from], recent_matrix[:,random_col][jump_to] = recent_matrix[:,random_col][jump_to], recent_matrix[:,random_col][jump_from]
-                if count >= burn:
-                    cost_list[index].append(cost_previous_list[index])
+                
+                cost_list[index].append(cost_previous_list[index])
                     #print(f'appended {cost_previous_list[index]}')
                 #ここまでで、1イテレーションでacceptするにせよしないにせよそのチェーンのrandom matrixが決まっている
                 #それをappendしたい
@@ -853,16 +855,31 @@ with requests.Session() as s:
                 if r < np.exp(chain_delta*temp_delta): #ここはマイナスいらない
                     #ここでchainそのものでなくて温度とcostを入れ替えたらどうなる？
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
+                    print(np.array(chains).astype(int))
+                    #chains[i1][-1], chains[i2][-1] = chains[i2][-1], chains[i1][-1]
                     exchange_list[i1] += 1
             
             count += 1
             print(f'Exchange percentage: {np.array(exchange_list*100/count).astype(int)}')
+            print(f'Exchange percentage: {np.array(exchange_list).astype(int)}')
+
+            '''
+            ちょっと確認したいのでは、ある温度での期待値<A>は、サンプル点｛X_1,\cdots,X_M}にたいして、
+            <A> = \frac{1}{M} \sum_{m=1}^M A(X_m)
+            です。だから、温度の関数ですよ。
+
+            まだ、様子はわかっていないですが、交換試行の採択確率を経験確率として評価してみましょう。
+            X回試行中Y回採択されたとしてら、Y/Xです。
+            ｍ番目の温度Tmとm+1番目の温度の交換に限定すれば、これも温度T_mのの関数になります。
+            どうせしょうか。これがある温度のところでゼロにちかくにっているのではないかと想像します。
+            '''
 
             #一番低温のchainをモニター（コストが上位10をマーク）
             #コストの平均値（温度逆温度の関数でプロット）（温度一定の条件）
             #↑もし動いていなければ頭打ち
             #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
-            #print(np.array(chains[-1][-1]).astype(int))
+            #print(np.array(list((reversed(chains[-1][-1])))).astype(int))
+            print(np.flip(np.ravel(observed_fraction*100).astype(int)))
             #print(np.array(chains[-1][0]).astype(int))
 
         print(f'\n')
@@ -870,22 +887,25 @@ with requests.Session() as s:
         print(f"  --------------------------------------------- ↑coolest↑ --------------------------------- ↓hottest↓ ---------------------------------------------")
         print(np.array(list(reversed(chains[-1][0]))).astype(int))
         fig, ax = plt.subplots(num_chains,2,sharex='col')
-        expected_cost = np.cumsum(cost_list,axis=1)/list(range(1,count-burn+1))
+        cost_list = np.array(cost_list)
+        expected_cost = np.cumsum(cost_list[:,burn::thin],axis=1)/list(range(1,len(cost_list[:,burn::thin][0])+1))
+        print(expected_cost[-1])
 
         for i in range(num_chains):
-            ax[i,0].plot(list(range(burn,count)),expected_cost[-i],label=f"T = {temperatures[i]:.3f}")
+            ax[i,0].plot(range(len(expected_cost[-1])),expected_cost[i],label=f"T = {temperatures[i]:.3f}")
             ax[i,0].legend(loc="upper right")
-            ax[i,1].hist(cost_list[-i],label=f"T = {temperatures[i]:.3f}")
+            ax[i,1].hist(cost_list[:,burn::thin][i],label=f"T = {temperatures[i]:.3f}")
             ax[i,1].legend(loc="upper right")
             fig.tight_layout()
         plt.subplots_adjust(hspace=0.)
         print(exchange_list)
 
-        sorted_cost = sorted(set(cost_list[-1][burn:]))
+        sorted_cost = sorted(set(cost_list[-1][burn::thin]))
+        print(sorted_cost)
 
-        best_indices = [cost_list[-1].index(sorted_cost[i]) for i in range(min(5,len(sorted_cost)))]
+        best_indices = [list(cost_list[-1]).index(sorted_cost[i]) for i in range(min(10,len(sorted_cost)))] # i access the index of the original cost list without burn or thin
 
-        best_matrices = [np.array(list(reversed(chains[i+burn][-1]))).astype(int) for i in best_indices]
+        best_matrices = [np.array(list(reversed(chains[i][-1]))).astype(int) for i in best_indices] #then i select from the original chain by that index
 
         observation_matrix = np.array(list(reversed(observation_matrix))).astype(bool).astype(int)
 
@@ -898,6 +918,7 @@ with requests.Session() as s:
                 fraction_list.append(int(fraction*100))
             fraction_list = np.array(fraction_list)
             print(fraction_list[fraction_list.astype(bool)])
+            print(sorted_cost[index])
 
         #print(sorted_cost)
         print(f"  ------------------------------------------------------------------- Observation matrix -------------------------------------------------------------------")
