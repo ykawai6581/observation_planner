@@ -515,12 +515,12 @@ with requests.Session() as s:
                 observation_value = np.array([0.1 for item in observation_value]) * obs_lim_filter #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
                 transit_value = obs_lim_filter.astype(np.int).to_numpy()
                 observable_fraction = np.sum(observation_filter)/np.sum(obs_lim_filter)
+                observation_value *= observable_fraction #みられる時間が限られる天体は価値が下がる
             else:
                 transit_value = observation_filter.astype(np.int).to_numpy()
             #下で、priorityが一番高い天体、月が近いが優遇が１になるようにスケーリングする
-            observation_value = observation_value*(max_priority/int(object['Priority']))#* np.log(float(object["Moon"])-30)/np.e
+            observation_value *= max_priority/int(object['Priority'])#* np.log(float(object["Moon"])-30)/np.e
             observation_value *= moon_step(float(object['Moon'])) #月が近いと価値が下がる
-            observation_value *= observable_fraction #みられる時間が限られる天体は価値が下がる
             #twilightを加味するかは要検討
             #observation_value = np.array([item if bool(item) else 0 for item in observation_value])
             observation_matrix.append(observation_value)
