@@ -514,10 +514,14 @@ with requests.Session() as s:
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
                 observation_value = np.array([0.1 for item in observation_value]) * obs_lim_filter #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
                 transit_value = obs_lim_filter.astype(np.int).to_numpy()
+                observable_fraction = np.sum(observation_filter)/np.sum(obs_lim_filter)
             else:
                 transit_value = observation_filter.astype(np.int).to_numpy()
             #下で、priorityが一番高い天体、月が近いが優遇が１になるようにスケーリングする
-            observation_value = observation_value*(max_priority/int(object['Priority']))*moon_step(float(object['Moon']))#* np.log(float(object["Moon"])-30)/np.e
+            observation_value = observation_value*(max_priority/int(object['Priority']))#* np.log(float(object["Moon"])-30)/np.e
+            observation_value *= moon_step(float(object['Moon'])) #月が近いと価値が下がる
+            observation_value *= observable_fraction #みられる時間が限られる天体は価値が下がる
+            #twilightを加味するかは要検討
             #observation_value = np.array([item if bool(item) else 0 for item in observation_value])
             observation_matrix.append(observation_value)
             transit_matrix.append(transit_value)
@@ -682,7 +686,7 @@ with requests.Session() as s:
         plt.subplots_adjust(hspace=0.)
         plt.show()
 
-        num_chains = 10
+        num_chains = 11
         np.set_printoptions(threshold=np.inf,linewidth=np.inf)
 
         #チェーン分の初期値を用意
@@ -703,7 +707,7 @@ with requests.Session() as s:
         sum_matrix = np.array(random_matrix)*0        
 
         count = 0
-        steps = 600000
+        steps = 500000
         burn  = 100000
         thin = 500
         accepted = np.zeros(num_chains)
@@ -855,13 +859,12 @@ with requests.Session() as s:
                 if r < np.exp(chain_delta*temp_delta): #ここはマイナスいらない
                     #ここでchainそのものでなくて温度とcostを入れ替えたらどうなる？
                     chains[-1][i1], chains[-1][i2] = chains[-1][i2], chains[-1][i1]
-                    print(np.array(chains).astype(int))
                     #chains[i1][-1], chains[i2][-1] = chains[i2][-1], chains[i1][-1]
                     exchange_list[i1] += 1
             
             count += 1
-            print(f'Exchange percentage: {np.array(exchange_list*100/count).astype(int)}')
-            print(f'Exchange percentage: {np.array(exchange_list).astype(int)}')
+            print(f'Exchange percentage   (%): {np.array([np.round(item*100/count, decimals=2) for item in exchange_list])}')
+            print(f'Exchange executed (count): {np.array(exchange_list).astype(int)}')
 
             '''
             ちょっと確認したいのでは、ある温度での期待値<A>は、サンプル点｛X_1,\cdots,X_M}にたいして、
@@ -879,7 +882,8 @@ with requests.Session() as s:
             #↑もし動いていなければ頭打ち
             #これを見て下がり続けているようであればもっと温度のrangeを広げる必要がある
             #print(np.array(list((reversed(chains[-1][-1])))).astype(int))
-            print(np.flip(np.ravel(observed_fraction*100).astype(int)))
+            print(f'Observed fraction     (%): {np.flip(np.ravel(observed_fraction*100).astype(int))}')
+
             #print(np.array(chains[-1][0]).astype(int))
 
         print(f'\n')
@@ -889,7 +893,7 @@ with requests.Session() as s:
         fig, ax = plt.subplots(num_chains,2,sharex='col')
         cost_list = np.array(cost_list)
         expected_cost = np.cumsum(cost_list[:,burn::thin],axis=1)/list(range(1,len(cost_list[:,burn::thin][0])+1))
-        print(expected_cost[-1])
+        #print(expected_cost[-1])
 
         for i in range(num_chains):
             ax[i,0].plot(range(len(expected_cost[-1])),expected_cost[i],label=f"T = {temperatures[i]:.3f}")
@@ -898,10 +902,10 @@ with requests.Session() as s:
             ax[i,1].legend(loc="upper right")
             fig.tight_layout()
         plt.subplots_adjust(hspace=0.)
-        print(exchange_list)
+        #print(exchange_list)
 
         sorted_cost = sorted(set(cost_list[-1][burn::thin]))
-        print(sorted_cost)
+        #print(sorted_cost)
 
         best_indices = [list(cost_list[-1]).index(sorted_cost[i]) for i in range(min(10,len(sorted_cost)))] # i access the index of the original cost list without burn or thin
 
