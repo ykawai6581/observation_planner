@@ -773,6 +773,7 @@ with requests.Session() as s:
                 cost_current = (1 - plan_value) + (1 - observed_fraction_exp) + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #altitude limitを超えて観測はできないようにコスト関数を設計したい
+                #altitude limitの他のところに-infを入れてもいいのかな
                 #今のコスト関数の設計だと、正しい重みづけがされていれば、価値が高くて、全容を撮り切れるトランジットから順番に、一天体の観測時間を最大化しながら、かつ出戻りしない形で観測されるはず
                 #あとは、target switchの絶対値をどのようにかして考慮しないと、二つ同じ長さのトランジットがあったとき、一つだけフルでとるのと、二つとも半分だけ取ることの期待値が0.5で同じになってしまう
                 #↑一天体の平均観測時間を最大化することで解決！
