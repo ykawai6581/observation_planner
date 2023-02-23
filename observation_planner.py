@@ -510,18 +510,19 @@ with requests.Session() as s:
             intransit = df_altitude_plot[transit_filter]
             ootransit = df_altitude_plot[~transit_filter][altitude_filter]
 
-            observation_value = (observation_filter * obs_lim_filter).astype(np.float).to_numpy()
+            observation_value = (observation_filter * obs_lim_filter * twilight_filter).astype(np.float).to_numpy()
             #observation_value += transit_filter.astype(np.int).to_numpy()
             if np.sum(observation_value) == 0:#fillerの観測価値は一定にする
-                observation_value = np.array([0.01 for item in observation_value]) * obs_lim_filter #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
+                observation_value = np.array([0.01 for item in observation_value]) * obs_lim_filter * twilight_filter #ここまでで観測可能な場所には0か1かfillerには0.1が入っている
                 transit_value = obs_lim_filter.astype(np.int).to_numpy()
             else:
-                observable_fraction = np.sum(obs_lim_filter*observation_filter)/np.sum(observation_filter)
-                observation_value *= observable_fraction  #みられる時間が限られる天体は価値が下がる
+                observable_fraction = np.sum(obs_lim_filter * observation_filter * twilight_filter)/np.sum(observation_filter)
+                observation_value *= observable_fraction**2  #みられる時間が限られる天体は価値が下がる
                 transit_value = observation_filter.astype(np.int).to_numpy()
             #下で、priorityが一番高い天体、月が近いが優遇が１になるようにスケーリングする
             observation_value = observation_value*(max_priority/int(object['Priority']))#* np.log(float(object["Moon"])-30)/np.e
             observation_value *= moon_step(float(object['Moon'])) #月が近いと価値が下がる
+            observation_value[(observation_value == 0)] = -1
             #twilightを加味するかは要検討
             #observation_value = np.array([item if bool(item) else 0 for item in observation_value])
             observation_matrix.append(observation_value)
@@ -691,11 +692,11 @@ with requests.Session() as s:
         #sum_matrix = np.array(random_matrix)*0        
 
         count = 0
-        steps = 500000
-        burn  = 100000
+        steps = 800_000
+        burn  = 100_000
         thin = 500
-        num_chains = 10
-        temperatures = np.linspace(np.log(1.5),np.log(1e-2),num_chains)
+        num_chains = 7
+        temperatures = np.linspace(np.log(1e-1),np.log(1e-2),num_chains)
         temperatures = np.exp(temperatures)
         np.set_printoptions(threshold=np.inf,linewidth=np.inf)
 
@@ -703,7 +704,7 @@ with requests.Session() as s:
         random_matrices = []
         for i in range(num_chains):
             random_matrix = []
-            empty_matrix = np.zeros((len(plans[0]),len(constants['UT'])))
+            empty_matrix = np.zeros((len(plans[0])+1,len(constants['UT']))) #何もみないというオプションのために+1
             for column in empty_matrix.T:
                 random_int = random.randint(0,len(column)-1)
                 column[random_int] = 1
@@ -721,11 +722,16 @@ with requests.Session() as s:
         observed_fraction_list = [[] for i in range(num_chains)]
         exchange_list = np.zeros(num_chains)
         ones = np.ones((len(constants['UT']),1))
+
+        observation_matrix.append(np.zeros((len(constants['UT']))))
+        observation_matrix = np.array(observation_matrix)
+        transit_matrix.append(np.zeros((len(constants['UT']))))
         transit_matrix = np.array(transit_matrix)
 
         #高い方は本当に高くして、explorativeな性質を残さなければいけない→採択率を上げたい
         #at least the last chain should work as per normal
-        observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
+        #observation_boolean_matrix = np.array(list(observation_matrix)).astype(bool).astype(int)
+        observation_boolean_matrix = (observation_matrix > 0).astype(int)
 
         while count <= steps:
             print(f"  -------------------------------------------------------------  Step {count}  ------------------------------------------------------------------")
@@ -753,8 +759,8 @@ with requests.Session() as s:
 
                 print(f'{random_col} {jump_from} => {random_col} {jump_to}')
 
-                current_observation = meaninful_observations.dot(ones)
-                full_observation = transit_matrix.dot(ones)
+                current_observation = meaninful_observations.dot(ones)[:-1] #omit the last row that is the rest option
+                full_observation = transit_matrix.dot(ones)[:-1]
                 #extended_observation = observation_matrix.dot(ones)#伸び代があればこっちをfull observationより使いたい
                 observed_fraction = current_observation/full_observation
                 obs_duration_exp = current_observation/len(constants['UT']) #the expected number of 1 in each grid of time for each target
@@ -762,7 +768,7 @@ with requests.Session() as s:
                 observed_fraction_exp = np.sum(observed_fraction)/observed_targets #observed fraction is the expected value of observed fraction for each observed targets ← 1 if all observations are meaninful and fully conducted 
                 obs_duration_exp = np.sum(obs_duration_exp)/observed_targets #longer the observation, higher the expected value, smaller the number of observed targes, higher the expected value
 
-                target_switch = int(len(constants['UT']) - 1 - np.sum(recent_matrix[:,1:]*recent_matrix[:,:-1]))
+                target_switch = int(len(constants['UT']) - 1 - np.sum(recent_matrix[:-1,1:]*recent_matrix[:-1,:-1])) #omit the last row that is the rest option
 
                 allowed_target_switch = observed_targets - 1
                 extra_target_switch = target_switch - allowed_target_switch#target switch > allowed target switch , 0 if no repeated observation
@@ -770,7 +776,9 @@ with requests.Session() as s:
                 target_switch_exp = target_switch/len(constants['UT']) #the expected number of target switch in each grid of time←0 if no target switch 1 if target switched every grid of time
 
                 #ideally equal to zero
-                cost_current = (1 - plan_value) + (1 - observed_fraction_exp) + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #概念自体を重視する場合は係数を大きくする、変化を重視する場合は指数を大きくする
+                cost_current = (1 - plan_value)/2 + (1 - observed_fraction_exp) + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #cost_current = (1 - plan_value) + (1 - observed_fraction_exp)# + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #altitude limitを超えて観測はできないようにコスト関数を設計したい
                 #altitude limitの他のところに-infを入れてもいいのかな
@@ -926,7 +934,7 @@ with requests.Session() as s:
         best_matrices = [np.array(list(reversed(chains[i][-1]))).astype(int) for i in best_indices] #then i select from the original chain by that index
         best_matrices_2 = [np.array(list(reversed(chains[i][-1]))).astype(int) for i in best_indices_2]
 
-        observation_matrix = np.array(list(reversed(observation_matrix))).astype(bool).astype(int)
+        observation_matrix = (np.array(list(reversed(observation_matrix)))> 0).astype(int)
 
         for index, (item,item2) in enumerate(zip(best_matrices,best_matrices_2)):
             print(f"  ------------------------------------------------------------------- Plan {index+1} -------------------------------------------------------------------")
@@ -934,19 +942,21 @@ with requests.Session() as s:
             print(item)
             print("Observed fraction based:")
             print(item2)
-            fraction_list = []
-            for row_i, row_t in zip(item, list(reversed(transit_matrix))):
-                fraction = np.sum(row_i)/np.sum(row_t)
-                fraction_list.append(int(fraction*100))
+            fraction_list = ['Observed fraction (Transit covered)']
+            for row_i, row_t in zip(item[1:], list(reversed(transit_matrix))[1:]):
+                fraction_m = np.sum(row_i*row_t)/np.sum(row_t)
+                fraction_a = np.sum(row_i)/np.sum(row_t)
+                if fraction_a != 0:
+                    fraction_list.append(f'{int(fraction_a*100)} ({int(fraction_m*100)})')
             fraction_list = np.array(fraction_list)
-            print(fraction_list[fraction_list.astype(bool)])
+            print(fraction_list)
             print(sorted_cost[index])
 
         #print(sorted_cost)
         print(f"  ------------------------------------------------------------------- Observation matrix -------------------------------------------------------------------")
         print(observation_matrix)
         print(f"  --------------------------------------------------------------------- Transit matrix ---------------------------------------------------------------------")
-        print(np.array(list(reversed(transit_matrix))))
+        print(np.array(list(reversed(transit_matrix))).astype(int))
         plt.show()
 
         '''
