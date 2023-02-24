@@ -692,11 +692,12 @@ with requests.Session() as s:
         #sum_matrix = np.array(random_matrix)*0        
 
         count = 0
-        steps = 800_000
+        steps = 500_000
         burn  = 100_000
         thin = 500
         num_chains = 7
         temperatures = np.linspace(np.log(1e-1),np.log(1e-2),num_chains)
+        #temperatures = np.linspace(np.log(1e-1),np.log(1e-3),num_chains)
         temperatures = np.exp(temperatures)
         np.set_printoptions(threshold=np.inf,linewidth=np.inf)
 
@@ -779,6 +780,8 @@ with requests.Session() as s:
                 #概念自体を重視する場合は係数を大きくする、変化を重視する場合は指数を大きくする
                 cost_current = (1 - plan_value)/2 + (1 - observed_fraction_exp) + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #cost_current = (1 - plan_value) + (1 - observed_fraction_exp)# + (1 - obs_duration_exp)**5 + 6*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
+                #cost_current = (1 - plan_value) + (1 - obs_duration_exp)
+                #cost_current = (1 - plan_value) + extra_target_switch_exp
                 #cost_current = (1 - plan_value) + 5*(1 - observed_fraction_exp) + (1 - obs_duration_exp) + 5*extra_target_switch_exp # -(continuous_observation/len(constants['UT'])))
                 #altitude limitを超えて観測はできないようにコスト関数を設計したい
                 #altitude limitの他のところに-infを入れてもいいのかな
