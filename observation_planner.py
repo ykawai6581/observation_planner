@@ -310,6 +310,19 @@ with requests.Session() as s:
         df['Acc period error'] = ["+ 00:00:00" if item == "" else item for item in df['Acc period error']]
 
         targets_df.to_csv("targets.csv")
+        ra_list = []
+        dec_list = []
+        for index, row in df.iterrows():
+            print(df)
+            print(row)
+            meta = targets_df[targets_df["name"] == row["Name"]]
+            ra_list.append(float(meta['RA']))
+            dec_list.append(float(meta['Decl']))
+        print(ra_list)
+        print(dec_list)
+        df['RA'] = ra_list
+        df['Dec'] = dec_list
+
         df.to_csv("obs_plan.csv")
 
         with open('twilights.json', 'w') as f:
@@ -331,9 +344,12 @@ with requests.Session() as s:
     # is definitely going to be visible from that observatory all the time
 
     # 1: Preapre RA, Dec, Time, Latitude, Longitude
-    
+    '''
     df['RA in deg'] = [hms_to_deg(item) for item in df['RA']]
     df['Dec in deg'] = [dms_to_deg(item) for item in df['Dec']]
+    '''
+    df['RA in deg'] = df['RA']
+    df['Dec in deg'] = df['Dec']
 
     df['Ephem error TD'] = [datetime.timedelta(hours=int(item[2:4]),minutes=int(item[5:7])) for item in df['Acc period error']]
 
