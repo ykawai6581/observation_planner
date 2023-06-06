@@ -434,7 +434,8 @@ with requests.Session() as s:
     constants['Moon azimuth'] = [moon_position(longitude,latitude,lst)['azimuth'] for lst in constants['Local sidereal time']]
 
     for i, plan in enumerate(plans):
-        plan = plan.sort_values(['Filler','Name','Priority'],ascending=[False,False,False]).reset_index()
+        plan = plan.sort_values(['Filler','Priority','Name'],ascending=[False,False,False])
+
         fig = plt.figure(figsize=(15,8))
         gs = gridspec.GridSpec(2, 2, width_ratios=[3, 1]) 
         ax_airmass_plot = plt.subplot(gs[0,0])
