@@ -653,4 +653,5 @@ with requests.Session() as s:
         fig.tight_layout()
         plt.subplots_adjust(hspace=0.)
         plt.show()
+        plt.savefig("image.png")
         # note: altitude = 0 になる時間を解ける？
