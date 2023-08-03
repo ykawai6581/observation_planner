@@ -514,6 +514,9 @@ with requests.Session() as s:
                 observation_plot, = ax_gantt_plot.barh(object['Name'], left=mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1]), width=obs_max_duration, color="gray",height=0.5,alpha=0.5)#, left=df_altitude_plot['JST'])
                 ax_gantt_plot.text(mdates.date2num(df_altitude_plot['UT'][obs_lim_filter].iloc[-1]) + obs_max_duration/2, object['Name'], f'{object["Name"]} [{str(object["Priority"])}|{object["Filler"]}]', va='center' ,ha='center', fontsize=10, color=darken_color(text_color,0.05),weight='bold')
             ax_gantt_plot.hlines(object['Name'], df_altitude_plot['UT'][obs_lim_filter].iloc[0],df_altitude_plot['UT'][obs_lim_filter].iloc[-1] , color=color,alpha=0.2)#, left=df_altitude_plot['JST'])
+            print(object["Name"])
+            print(df_altitude_plot)
+            #sys.exit(1)
 
             polar_plot_trajectory, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360),color=color,alpha=0,linestyle="dotted")
             polar_plot, = ax_polar_plot.plot(df_altitude_plot['Az'][obs_lim_filter]*2*np.pi/360 + (np.pi/2),np.cos(df_altitude_plot['Alt'][obs_lim_filter]*2*np.pi/360), color=color,alpha=0)
