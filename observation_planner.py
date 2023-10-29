@@ -223,14 +223,14 @@ with requests.Session() as s:
         print('_________________________________________________')
         
         time_start = time.time()
-        p = s.post('http://research.iac.es/proyecto/muscat/users/login', data=payload)
+        p = s.post('https://research.iac.es/proyecto/muscat/users/login', data=payload)
         time_end = time.time()
         elapsed = time_end - time_start
         if elapsed < 2:
             print("\nlogin failed: wrong username/password\n")
             sys.exit(1)
-        obs_path = 'http://research.iac.es/proyecto/muscat/observations/export'
-        targets_path = 'http://research.iac.es/proyecto/muscat/stars/export'
+        obs_path = 'https://research.iac.es/proyecto/muscat/observations/export'
+        targets_path = 'https://research.iac.es/proyecto/muscat/stars/export'
         path_list = [obs_path,targets_path]
         r = [s.get(path) for path in tqdm.tqdm(path_list, desc=f'Downloading past observation and registered targets data... (about 15 seconds)')]
         obs_text = r[0].text#.encode('utf-8')
@@ -249,7 +249,7 @@ with requests.Session() as s:
         print(f'Generating airmass plots for {day.strftime("%B %d, %Y")}')
         print('_________________________________________________')
         
-        registration = s.post('http://research.iac.es/proyecto/muscat/stars/scheduler', data=data)
+        registration = s.post('https://research.iac.es/proyecto/muscat/stars/scheduler', data=data)
         
         mat = []  # 保存先の行列
         soup = BeautifulSoup(registration.content, 'html.parser')
